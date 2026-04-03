@@ -161,11 +161,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_content_menu(query, context: ContextTypes.DEFAULT_TYPE):
     """Show content management menu."""
-    total_movies, total_series, total_anime = await asyncio.gather(
+    results = await asyncio.gather(
         db.get_total_movies(),
         db.get_total_shows(ContentType.SERIES),
         db.get_total_shows(ContentType.ANIME),
+        return_exceptions=True,
     )
+    total_movies = results[0] if not isinstance(results[0], BaseException) else 0
+    total_series = results[1] if not isinstance(results[1], BaseException) else 0
+    total_anime = results[2] if not isinstance(results[2], BaseException) else 0
 
     text = (
         "🎬 *Administrar Contenido*\n\n"

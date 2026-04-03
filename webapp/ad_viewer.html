@@ -97,25 +97,31 @@
       margin-bottom: 20px;
       min-height: 20px;
     }
+    #watch-btn {
+      display: none;
+      width: 100%;
+      max-width: 360px;
+      padding: 15px;
+      background: linear-gradient(135deg, #e50914, #c40812);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      margin-top: 4px;
+      letter-spacing: 0.3px;
+    }
+    #watch-btn:active { opacity: 0.85; }
     #status {
       font-size: 15px;
       font-weight: 600;
       text-align: center;
       min-height: 24px;
+      margin-top: 12px;
     }
     .success { color: #3fb950; }
     .error { color: #f85149; }
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid #8b949e;
-      border-top-color: #e6edf3;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -130,6 +136,7 @@
 
   <div id="countdown-bar"><div id="countdown-fill"></div></div>
   <div id="countdown-text">Video disponible en <span id="cd-num">12</span>s</div>
+  <button id="watch-btn" onclick="sendContent()">▶️ Ver contenido</button>
   <div id="status"></div>
 
   <script>
@@ -217,8 +224,18 @@
 
       document.getElementById("countdown-bar").style.display = "none";
       document.getElementById("countdown-text").style.display = "none";
-      document.getElementById("status").innerHTML =
-        '<span class="spinner"></span> Enviando tu video...';
+
+      // Label based on content type
+      const labels = { movie: "🎬 Ver Película", ep: "📺 Ver Episodio" };
+      const btn = document.getElementById("watch-btn");
+      btn.textContent = labels[contentType] || "▶️ Ver contenido";
+      btn.style.display = "block";
+    }
+
+    function sendContent() {
+      const btn = document.getElementById("watch-btn");
+      btn.disabled = true;
+      btn.textContent = "⏳ Enviando...";
 
       fetch("/api/ad-completed", {
         method: "POST",
@@ -232,15 +249,20 @@
       .then(r => r.json())
       .then(data => {
         if (data.status === "ok") {
+          btn.style.display = "none";
           document.getElementById("status").innerHTML =
-            '<span class="success">✅ Video enviado al chat</span>';
+            '<span class="success">✅ Enviado al chat</span>';
           setTimeout(() => tg.close(), 2000);
         } else {
+          btn.disabled = false;
+          btn.textContent = "🔄 Reintentar";
           document.getElementById("status").innerHTML =
-            '<span class="error">❌ Error al enviar. Intenta de nuevo.</span>';
+            '<span class="error">❌ Error. Toca de nuevo.</span>';
         }
       })
       .catch(() => {
+        btn.disabled = false;
+        btn.textContent = "🔄 Reintentar";
         document.getElementById("status").innerHTML =
           '<span class="error">❌ Error de conexión.</span>';
       });

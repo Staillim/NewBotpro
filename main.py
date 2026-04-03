@@ -1,8 +1,11 @@
 """CineStelar Premium Bot – Entry point."""
 
+import asyncio
 import logging
+import os
 import sys
 
+import uvicorn
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -10,6 +13,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+from api.catalog import app as fastapi_app
 
 from config.settings import settings
 from database.db_manager import init_db
@@ -51,11 +56,8 @@ async def post_init(application):
     logger.info("Bot started: @%s (%s)", me.username, me.id)
 
 
-def main():
-    if not settings.BOT_TOKEN:
-        logger.error("BOT_TOKEN not set in .env")
-        sys.exit(1)
-
+def _build_application():
+    """Build and configure the Telegram bot application."""
     app = (
         ApplicationBuilder()
         .token(settings.BOT_TOKEN)
@@ -88,10 +90,50 @@ def main():
         handle_search_query,
     ))
 
-    # ── Start polling ─────────────────────────────────────────────────────
-    logger.info("Starting bot polling...")
-    app.run_polling(drop_pending_updates=True)
+    return app
+
+
+async def _run_bot(stop_event: asyncio.Event):
+    """Run the Telegram bot until stop_event is set."""
+    tg_app = _build_application()
+    async with tg_app:
+        await tg_app.start()
+        await tg_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Bot polling started.")
+        await stop_event.wait()
+        logger.info("Bot shutting down…")
+        await tg_app.updater.stop()
+        await tg_app.stop()
+
+
+async def _run_api(stop_event: asyncio.Event):
+    """Run the FastAPI catalog server.  Sets stop_event when it exits."""
+    port = int(os.getenv("PORT", 8000))
+    config = uvicorn.Config(
+        fastapi_app,
+        host="0.0.0.0",
+        port=port,
+        log_level="warning",
+        access_log=False,
+    )
+    server = uvicorn.Server(config)
+    logger.info("Catalog API starting on port %d…", port)
+    await server.serve()
+    # When uvicorn stops (SIGTERM / SIGINT), signal the bot to stop too
+    stop_event.set()
+
+
+async def main():
+    if not settings.BOT_TOKEN:
+        logger.error("BOT_TOKEN not set in .env")
+        sys.exit(1)
+
+    stop_event = asyncio.Event()
+    await asyncio.gather(
+        _run_bot(stop_event),
+        _run_api(stop_event),
+    )
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

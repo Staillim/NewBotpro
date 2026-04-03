@@ -35,6 +35,9 @@ class Settings:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot.db")
 
+    # Catalog WebApp URL (set to your Render URL after deploy, e.g. https://cinestelar.onrender.com)
+    WEBAPP_URL: str = os.getenv("WEBAPP_URL", "")
+
     # TMDb
     TMDB_API_KEY: str = os.getenv("TMDB_API_KEY", "")
 

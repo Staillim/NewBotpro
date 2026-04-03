@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 Base = declarative_base()
 
@@ -119,6 +121,11 @@ class Movie(Base):
     raw_caption = Column(Text, nullable=True)
     indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    __table_args__ = (
+        Index("ix_movies_indexed_at", "indexed_at"),
+        Index("ix_movies_vote_average", "vote_average"),
+    )
+
 
 # ── Content: TV Shows (Series & Anime share this) ────────────────────────────
 
@@ -142,6 +149,12 @@ class TvShow(Base):
     detected_pattern = Column(String(100), nullable=True)
 
     indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_shows_content_type", "content_type"),
+        Index("ix_shows_content_type_indexed", "content_type", "indexed_at"),
+        Index("ix_shows_vote_average", "vote_average"),
+    )
 
     episodes = relationship("Episode", back_populates="tv_show", lazy="selectin")
 

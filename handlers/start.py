@@ -2,7 +2,7 @@
 
 import logging
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -28,6 +28,14 @@ def main_menu_keyboard(has_plan: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton("⭐ Mis Favoritos", callback_data="favorites:list"),
         ],
     ]
+    # Catalog WebApp button – only shown when WEBAPP_URL is configured
+    if settings.WEBAPP_URL:
+        buttons.append([
+            InlineKeyboardButton(
+                "🌐 Catálogo Web",
+                web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            )
+        ])
     if has_plan:
         buttons.append([
             InlineKeyboardButton("👤 Mi Cuenta", callback_data="account:info"),
@@ -86,8 +94,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return
 
-    # Parse referral
+    # Parse deeplink args
     referred_by = None
+    catalog_deeplink = None
     if context.args:
         arg = context.args[0]
         if arg.startswith("ref_"):
@@ -97,6 +106,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     referred_by = None  # prevent self-referral
             except ValueError:
                 pass
+        elif arg.startswith("watch_movie_") or arg.startswith("watch_show_"):
+            catalog_deeplink = arg
 
     # Register/update user
     db_user = await db.get_or_create_user(
@@ -140,6 +151,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Check subscription
     is_active, plan = await db.check_subscription(user.id)
+
+    # ── Handle catalog deeplinks from WebApp ──
+    if catalog_deeplink:
+        await _handle_catalog_deeplink(update, catalog_deeplink, is_active, plan)
+        return
 
     if is_active:
         await update.message.reply_text(
@@ -197,4 +213,74 @@ async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             NOT_SUBSCRIBED_TEXT,
             reply_markup=kb,
             parse_mode="Markdown",
+        )
+
+
+# ── Catalog deeplink handler ─────────────────────────────────────────────────
+
+async def _handle_catalog_deeplink(
+    update: Update,
+    arg: str,
+    is_active: bool,
+    plan,
+):
+    """Handle watch_movie_ID and watch_show_ID deeplinks from the WebApp."""
+    if not is_active:
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
+            InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
+        ]])
+        await update.message.reply_text(
+            NOT_SUBSCRIBED_TEXT, reply_markup=kb, parse_mode="Markdown"
+        )
+        return
+
+    protect = plan != PlanType.PRO
+
+    if arg.startswith("watch_movie_"):
+        try:
+            movie_id = int(arg.split("_")[-1])
+        except ValueError:
+            return
+        movie = await db.get_movie(movie_id)
+        if not movie:
+            await update.message.reply_text("⚠️ Película no encontrada.")
+            return
+        caption = f"🎬 *{movie.title}*"
+        if movie.year:
+            caption += f"  ({movie.year})"
+        if movie.vote_average:
+            caption += f"\n⭐ {movie.vote_average:.1f}"
+        if movie.overview:
+            caption += f"\n\n{movie.overview[:300]}…"
+        await update.message.reply_video(
+            movie.file_id,
+            caption=caption,
+            parse_mode="Markdown",
+            protect_content=protect,
+        )
+
+    elif arg.startswith("watch_show_"):
+        try:
+            show_id = int(arg.split("_")[-1])
+        except ValueError:
+            return
+        show = await db.get_show(show_id)
+        if not show:
+            await update.message.reply_text("⚠️ Serie no encontrada.")
+            return
+        seasons = show.number_of_seasons or "?"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                f"📂 Ver temporadas ({seasons})",
+                callback_data=f"show:{show_id}",
+            )
+        ]])
+        caption = f"{'🎌' if show.content_type and 'anime' in show.content_type.value else '📺'} *{show.name}*"
+        if show.year:
+            caption += f"  ({show.year})"
+        if show.vote_average:
+            caption += f"\n⭐ {show.vote_average:.1f}"
+        await update.message.reply_text(
+            caption, reply_markup=kb, parse_mode="Markdown"
         )

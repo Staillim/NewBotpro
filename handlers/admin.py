@@ -40,29 +40,58 @@ def admin_only(func):
     return wrapper
 
 
-# ── Admin Menu ────────────────────────────────────────────────────────────────
+# ── Admin Panel ───────────────────────────────────────────────────────────────
+
+async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
+    """Build and send the main admin panel with live stats."""
+    total_users = await db.get_total_users()
+    active_subs = await db.get_active_subscribers()
+    total_movies = await db.get_total_movies()
+    total_series = await db.get_total_shows(ContentType.SERIES)
+    total_anime = await db.get_total_shows(ContentType.ANIME)
+
+    text = (
+        "🛠️ *Panel de Administración — TodoCineHD*\n\n"
+        "📊 *Estadísticas rápidas*\n"
+        f"👥 Usuarios: `{total_users}`\n"
+        f"💎 Suscriptores activos: `{active_subs}`\n\n"
+        "🎬 *Contenido*\n"
+        f"🎬 Películas: `{total_movies}`\n"
+        f"📺 Series: `{total_series}`\n"
+        f"🎌 Anime: `{total_anime}`\n"
+        f"📦 Total: `{total_movies + total_series + total_anime}`"
+    )
+
+    buttons = [
+        [
+            InlineKeyboardButton("📊 Estadísticas", callback_data="admin:stats"),
+            InlineKeyboardButton("👥 Usuarios", callback_data="admin:users"),
+        ],
+        [
+            InlineKeyboardButton("🎬 Administrar Contenido", callback_data="admin:content"),
+        ],
+        [
+            InlineKeyboardButton("📥 Indexar Canal", callback_data="admin:index"),
+            InlineKeyboardButton("📢 Broadcast", callback_data="admin:broadcast"),
+        ],
+        [
+            InlineKeyboardButton("💎 Activar Plan", callback_data="admin:activate"),
+        ],
+    ]
+    kb = InlineKeyboardMarkup(buttons)
+
+    # msg_or_query can be a Message or a CallbackQuery
+    if hasattr(msg_or_query, "edit_message_text"):
+        await msg_or_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    else:
+        await msg_or_query.reply_text(text, reply_markup=kb, parse_mode="Markdown")
+
 
 @admin_only
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show admin panel."""
-    buttons = [
-        [
-            InlineKeyboardButton("📥 Indexar Canal", callback_data="admin:index"),
-            InlineKeyboardButton("📊 Estadísticas", callback_data="admin:stats"),
-        ],
-        [
-            InlineKeyboardButton("👥 Usuarios", callback_data="admin:users"),
-            InlineKeyboardButton("💎 Activar Plan", callback_data="admin:activate"),
-        ],
-        [
-            InlineKeyboardButton("📢 Broadcast", callback_data="admin:broadcast"),
-        ],
-    ]
-    await update.message.reply_text(
-        "🛠️ *Panel de Administración*",
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode="Markdown",
-    )
+    """Show admin panel (command version)."""
+    msg = update.message
+    await send_admin_panel(msg, context)
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
@@ -76,19 +105,88 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_anime = await db.get_total_shows(ContentType.ANIME)
 
     text = (
-        "📊 *Estadísticas del Bot*\n\n"
-        f"👥 Usuarios totales: {total_users}\n"
-        f"💎 Suscriptores activos: {active_subs}\n\n"
-        f"🎬 Películas: {total_movies}\n"
-        f"📺 Series: {total_series}\n"
-        f"🎌 Anime: {total_anime}\n"
-        f"📦 Total contenido: {total_movies + total_series + total_anime}\n"
+        "📊 *Estadísticas detalladas*\n\n"
+        f"👥 Usuarios totales: `{total_users}`\n"
+        f"💎 Suscriptores activos: `{active_subs}`\n\n"
+        f"🎬 Películas: `{total_movies}`\n"
+        f"📺 Series: `{total_series}`\n"
+        f"🎌 Anime: `{total_anime}`\n"
+        f"📦 Total contenido: `{total_movies + total_series + total_anime}`\n"
     )
+    back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Panel principal", callback_data="admin:home")]])
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode="Markdown")
+        await update.callback_query.edit_message_text(text, reply_markup=back, parse_mode="Markdown")
     else:
-        await update.message.reply_text(text, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=back, parse_mode="Markdown")
+
+
+# ── Content management ────────────────────────────────────────────────────────
+
+async def show_content_menu(query, context: ContextTypes.DEFAULT_TYPE):
+    """Show content management menu."""
+    total_movies = await db.get_total_movies()
+    total_series = await db.get_total_shows(ContentType.SERIES)
+    total_anime = await db.get_total_shows(ContentType.ANIME)
+
+    text = (
+        "🎬 *Administrar Contenido*\n\n"
+        f"🎬 Películas: `{total_movies}`\n"
+        f"📺 Series: `{total_series}`\n"
+        f"🎌 Anime: `{total_anime}`\n\n"
+        "Selecciona una categoría para ver y gestionar el contenido:"
+    )
+    buttons = [
+        [InlineKeyboardButton(f"🎬 Películas ({total_movies})", callback_data="admin:content:movies:0")],
+        [InlineKeyboardButton(f"📺 Series ({total_series})", callback_data="admin:content:series:0")],
+        [InlineKeyboardButton(f"🎌 Anime ({total_anime})", callback_data="admin:content:anime:0")],
+        [InlineKeyboardButton("🔙 Panel principal", callback_data="admin:home")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+
+
+async def show_content_list(query, context: ContextTypes.DEFAULT_TYPE, kind: str, page: int):
+    """Browse movies/series/anime with delete buttons."""
+    PAGE = 6
+    if kind == "movies":
+        items, total = await db.get_movies_page(page, PAGE)
+        emoji = "🎬"
+        label = "Películas"
+        cat_back = "admin:content"
+        def item_cb(m): return f"admin:del:movie:{m.id}"
+        def item_label(m): return f"🎬 {m.title} ({m.year or '?'})"
+    else:
+        ct = ContentType.SERIES if kind == "series" else ContentType.ANIME
+        items, total = await db.get_shows_page(ct, page, PAGE)
+        emoji = "📺" if kind == "series" else "🎌"
+        label = "Series" if kind == "series" else "Anime"
+        cat_back = "admin:content"
+        def item_cb(s): return f"admin:del:show:{s.id}"
+        def item_label(s): return f"{emoji} {s.name} ({s.year or '?'})"
+
+    import math
+    total_pages = max(1, math.ceil(total / PAGE))
+    page = max(0, min(page, total_pages - 1))
+
+    text = f"{emoji} *{label}* — Página {page + 1}/{total_pages}  ({total} total)\n\nToca un título para borrarlo:"
+
+    buttons = []
+    for item in items:
+        buttons.append([InlineKeyboardButton(
+            f"🗑️ {item_label(item)}",
+            callback_data=item_cb(item),
+        )])
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"admin:content:{kind}:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"admin:content:{kind}:{page + 1}"))
+    if nav:
+        buttons.append(nav)
+
+    buttons.append([InlineKeyboardButton("🔙 Volver", callback_data=cat_back)])
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
 
 # ── Activate Plan (admin manually activates for a user) ──────────────────────
@@ -881,10 +979,14 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list[str]):
     """Handle admin:del:movie/show:<id> and admin:del:cancel callbacks."""
     query = update.callback_query
-    await query.answer()
 
     if parts[0] == "cancel":
-        await query.edit_message_text("❌ Borrado cancelado.")
+        await query.edit_message_text(
+            "❌ Borrado cancelado.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Administrar Contenido", callback_data="admin:content")
+            ]]),
+        )
         return
 
     if len(parts) < 2:
@@ -898,22 +1000,34 @@ async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ ID inválido.")
         return
 
+    back_kind = "movies" if kind == "movie" else "series"
+    back_btn = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🔙 Volver al listado", callback_data=f"admin:content:{back_kind}:0"),
+        InlineKeyboardButton("🏠 Panel", callback_data="admin:home"),
+    ]])
+
     if kind == "movie":
         movie = await db.get_movie(item_id)
         name = movie.title if movie else str(item_id)
         deleted = await db.delete_movie(item_id)
         if deleted:
-            await query.edit_message_text(f"✅ Película *{name}* borrada.", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ Película *{name}* borrada.", reply_markup=back_btn, parse_mode="Markdown")
         else:
-            await query.edit_message_text(f"❌ No se encontró la película con ID {item_id}.")
+            await query.edit_message_text(f"❌ No se encontró la película con ID {item_id}.", reply_markup=back_btn)
     elif kind == "show":
         show = await db.get_show(item_id)
         name = show.name if show else str(item_id)
+        back_kind = "anime" if (show and show.content_type == ContentType.ANIME) else "series"
+        back_btn = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔙 Volver al listado", callback_data=f"admin:content:{back_kind}:0"),
+            InlineKeyboardButton("🏠 Panel", callback_data="admin:home"),
+        ]])
         deleted = await db.delete_show(item_id)
         if deleted:
-            await query.edit_message_text(f"✅ Serie *{name}* y todos sus episodios borrados.", parse_mode="Markdown")
+            await query.edit_message_text(f"✅ *{name}* y todos sus episodios borrados.", reply_markup=back_btn, parse_mode="Markdown")
         else:
-            await query.edit_message_text(f"❌ No se encontró la serie con ID {item_id}.")
+            await query.edit_message_text(f"❌ No se encontró la serie con ID {item_id}.", reply_markup=back_btn)
     else:
         await query.edit_message_text("❌ Tipo desconocido.")
+
 

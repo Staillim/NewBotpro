@@ -352,6 +352,16 @@ async def get_episode(episode_id: int) -> Optional[Episode]:
         return result.scalar_one_or_none()
 
 
+async def get_last_episode_number(show_id: int, season: int) -> int:
+    """Return the highest episode_number for a given show+season, or 0 if none."""
+    async with async_session() as s:
+        result = await s.execute(
+            select(func.max(Episode.episode_number))
+            .where(Episode.tv_show_id == show_id, Episode.season_number == season)
+        )
+        return result.scalar() or 0
+
+
 # â”€â”€ Favorites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_favorite(user_id: int, content_type: ContentType, content_id: int):

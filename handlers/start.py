@@ -36,24 +36,6 @@ Entra a @TodoCineHD y dínos qué quieres ver.
 ⬇️ Toca el botón para abrir el catálogo completo.
 """
 
-NOT_SUBSCRIBED_TEXT = """
-⚠️ *No tienes un plan activo*
-
-Para acceder al catálogo necesitas una suscripción:
-
-💫 *Plan Lite* — $3/mes
-├ Acceso completo al catálogo
-├ Streaming ilimitado
-└ Sin anuncios
-
-👑 *Plan Pro* — $5/mes
-├ Todo lo del plan Lite
-├ Guardar contenido en tu dispositivo
-└ Acceso prioritario a estrenos
-
-Selecciona un plan para comenzar 👇
-"""
-
 VERIFY_TEXT = """
 ⚠️ *Verificación requerida*
 
@@ -66,7 +48,7 @@ Después presiona el botón de verificación.
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command."""
+    """Handle /start command — shows admin panel for admins, catalog for users."""
     user = update.effective_user
     if not user:
         return
@@ -98,6 +80,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if db_user.banned:
         await update.message.reply_text("🚫 Tu cuenta ha sido suspendida.")
+        return
+
+    # ── Admins get the admin panel ──
+    if settings.is_admin(user.id):
+        from handlers.admin import send_admin_panel
+        await send_admin_panel(update.message, context)
         return
 
     # ── Handle catalog deeplinks from WebApp ──

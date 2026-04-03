@@ -176,6 +176,15 @@ async def _start_show_session(
         "season": 1,
     }
 
+    # If show already has episodes, continue numbering from where it left off
+    last_ep = await db.get_last_episode_number(show.id, season=1)
+    if last_ep > 0:
+        _active_session["next_episode"] = last_ep + 1
+        await _notify(
+            context,
+            f"📌 Continuando desde el episodio {last_ep + 1}.",
+        )
+
 
 async def _add_episode(file_id: str, post: Message, context) -> None:
     """Index a video as the next episode in the active session."""

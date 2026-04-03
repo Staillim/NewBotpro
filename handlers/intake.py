@@ -55,8 +55,15 @@ async def _notify(context, text: str) -> None:
             text=text,
             parse_mode="Markdown",
         )
-    except Exception as exc:
-        logger.warning("Admin notification failed: %s", exc)
+    except Exception:
+        # Markdown parse failed — retry as plain text
+        try:
+            await context.bot.send_message(
+                chat_id=settings.ADMIN_IDS[0],
+                text=text.replace("*", "").replace("`", "").replace("_", " "),
+            )
+        except Exception as exc2:
+            logger.warning("Admin notification failed: %s", exc2)
 
 
 async def _notify_groups(context, title: str, year: str | None,
@@ -218,7 +225,7 @@ async def _start_show_session(
         await _do_start_show_session(name, content_type, emoji, context)
     except Exception as exc:
         logger.error("_start_show_session error: %s", exc, exc_info=True)
-        await _notify(context, f"❌ Error al crear la sesión: {exc}")
+        await _notify(context, f"❌ Error al crear la sesión para '{name}': {type(exc).__name__}")
 
 
 async def _do_start_show_session(
@@ -226,6 +233,12 @@ async def _do_start_show_session(
 ) -> None:
     global _active_session
     existing = await db.search_shows(name, content_type, limit=1, published_only=False)
+    if existing:
+        show = existing[0]
+        # Verify the show actually still exists in DB (extra safety check)
+        confirmed = await db.get_show(show.id)
+        if not confirmed:
+            existing = []  # Treat as not found
     if existing:
         show = existing[0]
         await _notify(

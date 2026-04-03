@@ -123,15 +123,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 Tu cuenta ha sido suspendida.")
         return
 
+    # Admins always get full access — no plan required
+    is_admin = settings.is_admin(user.id)
+
     # Check subscription
     is_active, plan = await db.check_subscription(user.id)
 
     # ── Handle catalog deeplinks from WebApp ──
     if catalog_deeplink:
-        await _handle_catalog_deeplink(update, catalog_deeplink, is_active, plan)
+        await _handle_catalog_deeplink(update, catalog_deeplink, is_active or is_admin, plan)
         return
 
-    if is_active:
+    if is_active or is_admin:
         await update.message.reply_text(
             WELCOME_TEXT,
             reply_markup=main_menu_keyboard(has_plan=True),

@@ -126,6 +126,9 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not name:
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `serie: Breaking Bad`")
             return
+        # Wait for pending episodes before switching session
+        async with _index_lock:
+            pass
         await _start_show_session(name, ContentType.SERIES, context)
         return
 
@@ -135,16 +138,21 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not name:
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `anime: Naruto`")
             return
+        # Wait for pending episodes before switching session
+        async with _index_lock:
+            pass
         await _start_show_session(name, ContentType.ANIME, context)
         return
 
     # ── final ─────────────────────────────────────────────────────────────────
     if tl == "final":
-        if not _active_session:
-            await _notify(context, "⚠️ No hay ninguna sesión activa.")
-            return
-        session = _active_session
-        _active_session = None
+        # Wait for any pending episode indexing to finish first
+        async with _index_lock:
+            if not _active_session:
+                await _notify(context, "⚠️ No hay ninguna sesión activa.")
+                return
+            session = _active_session
+            _active_session = None
         show = session["show"]
         count = session["episode_count"]
         emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"

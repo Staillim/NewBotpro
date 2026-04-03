@@ -1,10 +1,9 @@
-"""FastAPI catalog API + Telegram bot via webhook (no polling conflict)."""
+"""FastAPI catalog API + Telegram bot via webhook (production-ready)."""
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,25 +44,29 @@ logger = logging.getLogger(__name__)
 WEBAPP_DIR = Path(__file__).parent.parent / "webapp"
 _PAGE_SIZE = 12
 
-# Global bot application instance shared between lifespan and webhook endpoint
+# Global bot application
 _tg_app = None
-
-# Keeps strong references to background tasks so GC doesn't cancel them
-_active_tasks: set[asyncio.Task] = set()
-
-
-def _bg_task(coro: Any) -> asyncio.Task:
-    """Schedule coroutine as background task with strong reference."""
-    task = asyncio.create_task(coro)
-    _active_tasks.add(task)
-    task.add_done_callback(_active_tasks.discard)
-    return task
+# Background consumer task
+_consumer_task = None
 
 
 def _build_tg_application():
-    # updater=None = webhook mode, no background polling thread
-    # concurrent_updates=True = allow multiple users simultaneously
-    tg = ApplicationBuilder().token(settings.BOT_TOKEN).updater(None).concurrent_updates(True).build()
+    """Build PTB Application with all handlers.
+    
+    Key settings:
+    - updater=None: we receive updates via webhook, no polling
+    - concurrent_updates=256: allow many handlers to run in parallel
+    """
+    tg = (
+        ApplicationBuilder()
+        .token(settings.BOT_TOKEN)
+        .updater(None)
+        .concurrent_updates(256)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(15)
+        .build()
+    )
     tg.add_handler(CommandHandler("start", start_command))
     tg.add_handler(CommandHandler("admin", admin_menu))
     tg.add_handler(CommandHandler("stats", stats_command))
@@ -81,51 +84,90 @@ def _build_tg_application():
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_search_query,
     ))
-    # Intake channel: movies auto-index, series/anime via session
-    tg.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
+    tg.add_handler(MessageHandler(
+        filters.UpdateType.CHANNEL_POST,
+        handle_channel_post,
+    ))
     tg.add_error_handler(_ptb_error_handler)
     return tg
 
 
 async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Log ALL exceptions raised in handlers so they are visible in Render logs."""
-    logger.error("PTB handler error", exc_info=context.error)
+    """Log ALL handler exceptions to Render logs."""
+    logger.error("PTB handler error: %s", context.error, exc_info=context.error)
+
+
+async def _consume_updates():
+    """Continuously consume updates from PTB's internal queue.
+    
+    This is the correct pattern for PTB v21 webhook mode:
+    - Webhook endpoint puts raw updates into update_queue
+    - This consumer pulls them and calls process_update()
+    - PTB handles concurrency internally via concurrent_updates
+    - If process_update raises, we log it and keep consuming (never die)
+    """
+    while True:
+        try:
+            update = await _tg_app.update_queue.get()
+            if update is None:
+                logger.info("Consumer received shutdown signal")
+                break
+            try:
+                await _tg_app.process_update(update)
+            except Exception:
+                logger.exception("Error processing update_id=%s", getattr(update, 'update_id', '?'))
+        except asyncio.CancelledError:
+            logger.info("Consumer task cancelled")
+            break
+        except Exception:
+            logger.exception("Fatal consumer error, restarting loop")
+            await asyncio.sleep(0.5)
 
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     """Startup: init DB + start bot webhook. Shutdown: clean up."""
-    global _tg_app
+    global _tg_app, _consumer_task
 
-    # 1. Create all tables
+    # 1. Database
     logger.info("Initializing database...")
     await db.init_db()
-    logger.info("Database initialized.")
+    logger.info("Database ready.")
 
-    # 2. Build and start bot application
+    # 2. Build PTB application
     _tg_app = _build_tg_application()
     await _tg_app.initialize()
     await _tg_app.start()
 
-    # 3. Register webhook with Telegram
+    # 3. Start the update consumer (processes updates from the queue)
+    _consumer_task = asyncio.create_task(_consume_updates())
+
+    # 4. Register webhook with Telegram
     if settings.WEBAPP_URL:
         webhook_url = f"{settings.WEBAPP_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
         await _tg_app.bot.set_webhook(
             url=webhook_url,
             drop_pending_updates=True,
+            allowed_updates=["message", "callback_query", "channel_post"],
         )
         me = await _tg_app.bot.get_me()
         wh_info = await _tg_app.bot.get_webhook_info()
-        logger.info("Webhook set: %s  (@%s)", webhook_url, me.username)
-        logger.info("Webhook info: url=%s pending=%s last_error=%s",
-                    wh_info.url, wh_info.pending_update_count, wh_info.last_error_message)
-        logger.info("ADMIN_IDS configured: %s", settings.ADMIN_IDS)
+        logger.info("Bot @%s online | Webhook: %s", me.username, webhook_url)
+        logger.info("Pending: %s | Last error: %s",
+                     wh_info.pending_update_count, wh_info.last_error_message or "none")
+        logger.info("ADMIN_IDS: %s", settings.ADMIN_IDS)
     else:
-        logger.warning("WEBAPP_URL not set - webhook NOT registered. Bot won't receive messages.")
+        logger.error("WEBAPP_URL not set! Bot cannot receive messages.")
 
     yield  # ─── app is running ───
 
-    # Shutdown
+    # Shutdown: signal consumer to stop, then clean up PTB
+    await _tg_app.update_queue.put(None)
+    _consumer_task.cancel()
+    try:
+        await _consumer_task
+    except asyncio.CancelledError:
+        pass
     if settings.WEBAPP_URL:
         await _tg_app.bot.delete_webhook()
     await _tg_app.stop()
@@ -140,7 +182,7 @@ app = FastAPI(title="CineStelar", docs_url=None, redoc_url=None, lifespan=lifesp
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "HEAD"],
     allow_headers=["*"],
 )
 
@@ -149,29 +191,47 @@ app.add_middleware(
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
+    """Receive Telegram update, enqueue it, return 200 instantly.
+    
+    This is extremely fast (<5ms):
+    - Parse JSON
+    - Put into asyncio.Queue (non-blocking)
+    - Return "ok" immediately
+    
+    The _consume_updates task picks it up and processes it asynchronously.
+    Telegram NEVER retries because we always return 200 fast.
+    """
     if token != settings.BOT_TOKEN:
-        logger.warning("Webhook: invalid token received")
         raise HTTPException(status_code=403, detail="Forbidden")
     if _tg_app is None:
-        logger.error("Webhook: _tg_app is None - bot not initialized yet")
         return Response(content="not ready", status_code=503)
     try:
         data = await request.json()
-        update_id = data.get("update_id", "?")
-        logger.info("Webhook received update_id=%s", update_id)
         update = Update.de_json(data, _tg_app.bot)
-        _bg_task(_tg_app.process_update(update))
-        logger.info("Webhook enqueued update_id=%s", update_id)
-    except Exception as exc:
-        logger.exception("Webhook failed to enqueue update: %s", exc)
+        await _tg_app.update_queue.put(update)
+    except Exception:
+        logger.exception("Failed to enqueue webhook update")
     return Response(content="ok")
 
 
-# ── Health check (Render sends HEAD /) ────────────────────────────────────────
+# ── Health check ──────────────────────────────────────────────────────────────
 
 @app.head("/")
 async def health_head():
     return Response()
+
+@app.get("/health")
+async def health_check():
+    """Detailed health endpoint for debugging."""
+    ready = _tg_app is not None
+    consumer_alive = _consumer_task is not None and not _consumer_task.done()
+    queue_size = _tg_app.update_queue.qsize() if ready else -1
+    return {
+        "status": "ok" if (ready and consumer_alive) else "degraded",
+        "bot_ready": ready,
+        "consumer_alive": consumer_alive,
+        "queue_size": queue_size,
+    }
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

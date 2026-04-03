@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import func, select, update, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from database.models import (
@@ -40,19 +40,19 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migration: add published column if it doesn't exist yet
-        try:
-            await conn.execute(
-                __import__("sqlalchemy").text(
-                    "ALTER TABLE tv_shows ADD COLUMN published BOOLEAN DEFAULT 0"
-                )
-            )
-            # Mark all existing shows as published (they were already visible)
-            await conn.execute(
-                __import__("sqlalchemy").text("UPDATE tv_shows SET published = 1")
-            )
-        except Exception:
-            pass  # Column already exists — ignore
+
+    # Migration: add published column if it doesn't exist yet
+    # Run in a separate connection so DDL errors don't invalidate the main session
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE tv_shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT 0"
+            ))
+        # Mark all pre-existing shows as published
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE tv_shows SET published = 1"))
+    except Exception:
+        pass  # Column already exists — ignore
 
 
 # â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

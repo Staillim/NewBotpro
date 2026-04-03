@@ -1,8 +1,10 @@
 """FastAPI catalog API + Telegram bot via webhook (no polling conflict)."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,10 +47,22 @@ _PAGE_SIZE = 12
 # Global bot application instance shared between lifespan and webhook endpoint
 _tg_app = None
 
+# Keeps strong references to background tasks so GC doesn't cancel them
+_active_tasks: set[asyncio.Task] = set()
+
+
+def _bg_task(coro: Any) -> asyncio.Task:
+    """Schedule coroutine as background task with strong reference."""
+    task = asyncio.create_task(coro)
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+    return task
+
 
 def _build_tg_application():
     # updater=None = webhook mode, no background polling thread
-    tg = ApplicationBuilder().token(settings.BOT_TOKEN).updater(None).build()
+    # concurrent_updates=True = allow multiple users simultaneously
+    tg = ApplicationBuilder().token(settings.BOT_TOKEN).updater(None).concurrent_updates(True).build()
     tg.add_handler(CommandHandler("start", start_command))
     tg.add_handler(CommandHandler("admin", admin_menu))
     tg.add_handler(CommandHandler("stats", stats_command))
@@ -132,7 +146,9 @@ async def telegram_webhook(token: str, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
     data = await request.json()
     update = Update.de_json(data, _tg_app.bot)
-    await _tg_app.process_update(update)
+    # Fire-and-forget WITH strong reference — returns 200 instantly to Telegram
+    # so it never retries. _bg_task keeps the task alive until completion.
+    _bg_task(_tg_app.process_update(update))
     return Response(content="ok")
 
 

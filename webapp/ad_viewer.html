@@ -129,7 +129,7 @@
   </div>
 
   <div id="countdown-bar"><div id="countdown-fill"></div></div>
-  <div id="countdown-text">Video disponible en <span id="cd-num">10</span>s</div>
+  <div id="countdown-text">Video disponible en <span id="cd-num">12</span>s</div>
   <div id="status"></div>
 
   <script>
@@ -168,22 +168,32 @@
     }
 
     // ── Ad countdown ──────────────────────────────────────────────────
-    const AD_SECONDS = 10;   // 5s delay + ad display time
+    const AD_SECONDS = 12;
     let adDone = false;
 
-    // Launch In-App Interstitial — shows automatically after 5s
-    show_10827850({
-      type: 'inApp',
-      inAppSettings: {
-        frequency: 2,
-        capping: 0.1,
-        interval: 30,
-        timeout: 5,
-        everyPage: false
-      }
-    });
-
+    // Always start countdown immediately — ad is a bonus, not a blocker
     startCountdown();
+
+    // Try to show ad once the external script finishes loading (poll up to 3s)
+    function tryShowAd(retries) {
+      if (typeof show_10827850 === 'function') {
+        try {
+          show_10827850({
+            type: 'inApp',
+            inAppSettings: {
+              frequency: 2,
+              capping: 0.1,
+              interval: 30,
+              timeout: 5,
+              everyPage: false
+            }
+          });
+        } catch (e) { /* ad failed silently — countdown still runs */ }
+      } else if (retries > 0) {
+        setTimeout(() => tryShowAd(retries - 1), 200);
+      }
+    }
+    tryShowAd(15); // retry for up to 3 seconds
 
     function startCountdown() {
       let remaining = AD_SECONDS;

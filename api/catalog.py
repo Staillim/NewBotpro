@@ -1,12 +1,13 @@
 """FastAPI catalog API + Telegram bot via webhook (production-ready)."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -45,6 +46,16 @@ _PAGE_SIZE = 12
 
 # ── Global state ──────────────────────────────────────────────────────────────
 _tg_app = None
+_webhook_url = ""
+# Strong refs so GC never collects running handler tasks
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _fire(coro) -> None:
+    """Schedule coroutine as background task with strong reference."""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 def _build_tg_application():
@@ -87,42 +98,76 @@ async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE)
     logger.error("PTB handler error: %s", context.error, exc_info=context.error)
 
 
+async def _ensure_webhook() -> None:
+    """(Re)register webhook. Called on startup and by the keep-alive check."""
+    global _webhook_url
+    if not settings.WEBAPP_URL or _tg_app is None:
+        return
+    _webhook_url = f"{settings.WEBAPP_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
+    try:
+        await _tg_app.bot.set_webhook(
+            url=_webhook_url,
+            drop_pending_updates=False,
+            allowed_updates=["message", "callback_query", "channel_post"],
+        )
+        wh = await _tg_app.bot.get_webhook_info()
+        logger.info("Webhook SET → %s | pending=%s | error=%s",
+                     _webhook_url[:60] + "...",
+                     wh.pending_update_count,
+                     wh.last_error_message or "none")
+    except Exception:
+        logger.exception("Failed to set webhook!")
+
+
+async def _webhook_keepalive() -> None:
+    """Periodically verify webhook is alive; re-register if lost."""
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        try:
+            if _tg_app is None:
+                continue
+            wh = await _tg_app.bot.get_webhook_info()
+            if not wh.url:
+                logger.warning("Webhook URL is EMPTY — re-registering...")
+                await _ensure_webhook()
+            else:
+                logger.info("Webhook OK | pending=%s", wh.pending_update_count)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Keepalive check failed")
+
+
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
     global _tg_app
 
-    logger.info("Initializing database...")
+    logger.info("=== STARTUP BEGIN ===")
     await db.init_db()
     logger.info("Database ready.")
 
     _tg_app = _build_tg_application()
     await _tg_app.initialize()
     await _tg_app.start()
-    logger.info("PTB Application started.")
+    logger.info("PTB started.")
 
-    if settings.WEBAPP_URL:
-        webhook_url = f"{settings.WEBAPP_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
-        await _tg_app.bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-            allowed_updates=["message", "callback_query", "channel_post"],
-        )
-        me = await _tg_app.bot.get_me()
-        wh_info = await _tg_app.bot.get_webhook_info()
-        logger.info("Bot @%s online | Webhook: %s", me.username, webhook_url)
-        logger.info("Pending: %s | Last error: %s",
-                     wh_info.pending_update_count, wh_info.last_error_message or "none")
-        logger.info("ADMIN_IDS: %s", settings.ADMIN_IDS)
-    else:
-        logger.error("WEBAPP_URL not set! Bot cannot receive messages.")
+    await _ensure_webhook()
+
+    me = await _tg_app.bot.get_me()
+    logger.info("Bot @%s online | ADMIN_IDS=%s", me.username, settings.ADMIN_IDS)
+    logger.info("=== STARTUP COMPLETE ===")
+
+    # Start keepalive loop
+    keepalive_task = asyncio.create_task(_webhook_keepalive())
 
     yield
 
-    if settings.WEBAPP_URL:
-        try:
-            await _tg_app.bot.delete_webhook()
-        except Exception:
-            pass
+    # Shutdown — do NOT delete webhook so new deploy can pick up where left off
+    keepalive_task.cancel()
+    try:
+        await keepalive_task
+    except asyncio.CancelledError:
+        pass
     await _tg_app.stop()
     await _tg_app.shutdown()
     logger.info("Bot stopped.")
@@ -144,7 +189,7 @@ app.add_middleware(
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
-    """Receive update and process it inline. Telegram allows up to 60s."""
+    """Accept update → return 200 instantly → process in background."""
     if token != settings.BOT_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
     if _tg_app is None:
@@ -152,10 +197,22 @@ async def telegram_webhook(token: str, request: Request):
     try:
         data = await request.json()
         update = Update.de_json(data, _tg_app.bot)
-        await _tg_app.process_update(update)
+        _fire(_safe_process(update))
     except Exception:
-        logger.exception("Webhook error")
+        logger.exception("Webhook parse error")
     return Response(content="ok")
+
+
+async def _safe_process(update: Update) -> None:
+    """Process one update. Never raises — logs everything."""
+    try:
+        logger.info("Processing update_id=%s type=%s",
+                     update.update_id,
+                     "msg" if update.message else "cb" if update.callback_query else "ch_post" if update.channel_post else "other")
+        await _tg_app.process_update(update)
+        logger.info("Done update_id=%s", update.update_id)
+    except Exception:
+        logger.exception("Handler crashed on update_id=%s", update.update_id)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -166,7 +223,17 @@ async def health_head():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok" if _tg_app else "starting"}
+    ready = _tg_app is not None
+    info = {"status": "ok" if ready else "starting", "tasks": len(_bg_tasks)}
+    if ready:
+        try:
+            wh = await _tg_app.bot.get_webhook_info()
+            info["webhook_set"] = bool(wh.url)
+            info["pending"] = wh.pending_update_count
+            info["last_error"] = wh.last_error_message
+        except Exception:
+            info["webhook_set"] = "error"
+    return JSONResponse(info)
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

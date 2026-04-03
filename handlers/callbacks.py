@@ -26,6 +26,7 @@ from handlers.admin import (
     activate_plan_start,
     index_command,
     handle_series_selection,
+    handle_delete_callback,
 )
 from database import db_manager as db
 
@@ -177,6 +178,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("admin:select_series:"):
             idx = int(parts[2])
             await handle_series_selection(update, context, idx)
+
+        elif data.startswith("admin:del:"):
+            if settings.is_admin(query.from_user.id):
+                await handle_delete_callback(update, context, parts[2:])
+            else:
+                await query.answer("🚫 Sin permisos.", show_alert=True)
 
         else:
             await query.answer()

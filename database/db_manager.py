@@ -233,6 +233,14 @@ async def get_total_movies() -> int:
         return r.scalar() or 0
 
 
+async def delete_movie(movie_id: int) -> bool:
+    """Delete a movie by ID. Returns True if it existed."""
+    async with async_session() as s:
+        result = await s.execute(delete(Movie).where(Movie.id == movie_id))
+        await s.commit()
+        return result.rowcount > 0
+
+
 # â”€â”€ TV Shows / Anime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_tv_show(**kwargs) -> TvShow:
@@ -283,6 +291,27 @@ async def get_total_shows(content_type: ContentType) -> int:
             select(func.count(TvShow.id)).where(TvShow.content_type == content_type)
         )
         return r.scalar() or 0
+
+
+async def delete_show(show_id: int) -> bool:
+    """Delete a show and all its episodes. Returns True if the show existed."""
+    async with async_session() as s:
+        await s.execute(delete(Episode).where(Episode.tv_show_id == show_id))
+        result = await s.execute(delete(TvShow).where(TvShow.id == show_id))
+        await s.commit()
+        return result.rowcount > 0
+
+
+async def search_movies(query: str, limit: int = 10) -> list[Movie]:
+    """Search movies by title (case-insensitive)."""
+    async with async_session() as s:
+        result = await s.execute(
+            select(Movie)
+            .where(Movie.title.ilike(f"%{query}%"))
+            .order_by(Movie.title)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 # â”€â”€ Episodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

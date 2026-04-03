@@ -768,3 +768,152 @@ async def index_episodes_command(update: Update, context: ContextTypes.DEFAULT_T
         f"❌ Errores: {errors}",
         parse_mode="Markdown",
     )
+
+
+# ── Delete movie / show ───────────────────────────────────────────────────────
+
+@admin_only
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /borrar — show usage or search for content to delete.
+
+    Usage:
+      /borrar pelicula <ID o nombre>
+      /borrar serie <ID o nombre>
+    """
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text(
+            "🗑️ *Borrar contenido*\n\n"
+            "Uso:\n"
+            "`/borrar pelicula <ID o nombre>`\n"
+            "`/borrar serie <ID o nombre>`\n\n"
+            "Ejemplos:\n"
+            "`/borrar pelicula 42`\n"
+            "`/borrar pelicula Avengers`\n"
+            "`/borrar serie 7`\n"
+            "`/borrar serie Breaking Bad`",
+            parse_mode="Markdown",
+        )
+        return
+
+    kind = args[0].lower()
+    query = " ".join(args[1:])
+
+    if kind not in ("pelicula", "película", "serie", "anime"):
+        await update.message.reply_text(
+            "❌ Tipo inválido. Usa `pelicula`, `serie` o `anime`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    is_movie = kind in ("pelicula", "película")
+
+    # If query is a number, delete by ID directly
+    if query.isdigit():
+        item_id = int(query)
+        if is_movie:
+            movie = await db.get_movie(item_id)
+            if not movie:
+                await update.message.reply_text(f"❌ No encontré ninguna película con ID `{item_id}`.", parse_mode="Markdown")
+                return
+            # Confirm step via inline button
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"🗑️ Confirmar: borrar «{movie.title}»", callback_data=f"admin:del:movie:{item_id}"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="admin:del:cancel"),
+            ]])
+            await update.message.reply_text(
+                f"¿Confirmar borrado de la película *{movie.title}* (ID {item_id})?",
+                reply_markup=kb, parse_mode="Markdown",
+            )
+        else:
+            show = await db.get_show(item_id)
+            if not show:
+                await update.message.reply_text(f"❌ No encontré ninguna serie con ID `{item_id}`.", parse_mode="Markdown")
+                return
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"🗑️ Confirmar: borrar «{show.name}»", callback_data=f"admin:del:show:{item_id}"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="admin:del:cancel"),
+            ]])
+            await update.message.reply_text(
+                f"¿Confirmar borrado de *{show.name}* y todos sus episodios (ID {item_id})?",
+                reply_markup=kb, parse_mode="Markdown",
+            )
+        return
+
+    # Search by name and show results
+    if is_movie:
+        results = await db.search_movies(query)
+        if not results:
+            await update.message.reply_text(f"❌ No encontré películas con ese nombre.")
+            return
+        buttons = [
+            [InlineKeyboardButton(
+                f"🎬 {m.title} ({m.year or '?'}) — ID {m.id}",
+                callback_data=f"admin:del:movie:{m.id}",
+            )]
+            for m in results[:8]
+        ]
+        buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data="admin:del:cancel")])
+        await update.message.reply_text(
+            "Selecciona la película a borrar:",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+    else:
+        ct = ContentType.ANIME if kind == "anime" else ContentType.SERIES
+        results = await db.search_shows(query, limit=8)
+        if not results:
+            await update.message.reply_text(f"❌ No encontré series con ese nombre.")
+            return
+        buttons = [
+            [InlineKeyboardButton(
+                f"{'🎌' if s.content_type == ContentType.ANIME else '📺'} {s.name} ({s.year or '?'}) — ID {s.id}",
+                callback_data=f"admin:del:show:{s.id}",
+            )]
+            for s in results
+        ]
+        buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data="admin:del:cancel")])
+        await update.message.reply_text(
+            "Selecciona la serie a borrar:",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+
+async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list[str]):
+    """Handle admin:del:movie/show:<id> and admin:del:cancel callbacks."""
+    query = update.callback_query
+    await query.answer()
+
+    if parts[0] == "cancel":
+        await query.edit_message_text("❌ Borrado cancelado.")
+        return
+
+    if len(parts) < 2:
+        await query.edit_message_text("❌ Datos inválidos.")
+        return
+
+    kind, item_id_str = parts[0], parts[1]
+    try:
+        item_id = int(item_id_str)
+    except ValueError:
+        await query.edit_message_text("❌ ID inválido.")
+        return
+
+    if kind == "movie":
+        movie = await db.get_movie(item_id)
+        name = movie.title if movie else str(item_id)
+        deleted = await db.delete_movie(item_id)
+        if deleted:
+            await query.edit_message_text(f"✅ Película *{name}* borrada.", parse_mode="Markdown")
+        else:
+            await query.edit_message_text(f"❌ No se encontró la película con ID {item_id}.")
+    elif kind == "show":
+        show = await db.get_show(item_id)
+        name = show.name if show else str(item_id)
+        deleted = await db.delete_show(item_id)
+        if deleted:
+            await query.edit_message_text(f"✅ Serie *{name}* y todos sus episodios borrados.", parse_mode="Markdown")
+        else:
+            await query.edit_message_text(f"❌ No se encontró la serie con ID {item_id}.")
+    else:
+        await query.edit_message_text("❌ Tipo desconocido.")
+

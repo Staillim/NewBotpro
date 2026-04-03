@@ -1,0 +1,190 @@
+"""Central callback query router."""
+
+import logging
+
+from telegram import Update
+from telegram.ext import ContextTypes
+
+from config.settings import settings
+from database.models import ContentType
+from handlers.start import main_menu_keyboard, WELCOME_TEXT, verify_callback
+from handlers.catalog import (
+    show_movies_page,
+    show_shows_page,
+    show_movie_detail,
+    show_show_detail,
+    show_season,
+    watch_movie,
+    watch_episode,
+    download_movie,
+    show_favorites,
+    toggle_favorite,
+)
+from handlers.subscription import show_plans, select_plan, show_account
+from handlers.admin import (
+    stats_command,
+    activate_plan_start,
+    index_command,
+    handle_series_selection,
+)
+from database import db_manager as db
+
+logger = logging.getLogger(__name__)
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Route all callback queries to appropriate handlers."""
+    query = update.callback_query
+    data = query.data
+
+    if not data:
+        await query.answer()
+        return
+
+    parts = data.split(":")
+
+    try:
+        # ── Navigation ────────────────────────────────────────────
+        if data == "menu:main":
+            await query.answer()
+            is_active, _ = await db.check_subscription(query.from_user.id)
+            await query.edit_message_text(
+                WELCOME_TEXT,
+                reply_markup=main_menu_keyboard(has_plan=is_active),
+                parse_mode="Markdown",
+            )
+
+        # ── Verification ──────────────────────────────────────────
+        elif data == "verify:check":
+            await verify_callback(update, context)
+
+        # ── Catalog: Movies ───────────────────────────────────────
+        elif data.startswith("cat:movies:"):
+            page = int(parts[2])
+            await query.answer()
+            await show_movies_page(update, context, page)
+
+        # ── Catalog: Series ───────────────────────────────────────
+        elif data.startswith("cat:series:"):
+            page = int(parts[2])
+            await query.answer()
+            await show_shows_page(update, context, ContentType.SERIES, page)
+
+        # ── Catalog: Anime ────────────────────────────────────────
+        elif data.startswith("cat:anime:"):
+            page = int(parts[2])
+            await query.answer()
+            await show_shows_page(update, context, ContentType.ANIME, page)
+
+        # ── Movie Detail ──────────────────────────────────────────
+        elif data.startswith("movie:"):
+            movie_id = int(parts[1])
+            await query.answer()
+            await show_movie_detail(update, context, movie_id)
+
+        # ── Show Detail (Series/Anime) ────────────────────────────
+        elif data.startswith("show:"):
+            show_id = int(parts[1])
+            await query.answer()
+            await show_show_detail(update, context, show_id)
+
+        # ── Season Episodes ───────────────────────────────────────
+        elif data.startswith("season:"):
+            show_id = int(parts[1])
+            season = int(parts[2])
+            await query.answer()
+            await show_season(update, context, show_id, season)
+
+        # ── Watch ─────────────────────────────────────────────────
+        elif data.startswith("watch:movie:"):
+            movie_id = int(parts[2])
+            await watch_movie(update, context, movie_id)
+
+        elif data.startswith("watch:ep:"):
+            episode_id = int(parts[2])
+            await watch_episode(update, context, episode_id)
+
+        # ── Download ──────────────────────────────────────────────
+        elif data.startswith("download:movie:"):
+            movie_id = int(parts[2])
+            await download_movie(update, context, movie_id)
+
+        # ── Search ────────────────────────────────────────────────
+        elif data.startswith("search:"):
+            from handlers.search import search_start
+            await search_start(update, context)
+
+        # ── Favorites ─────────────────────────────────────────────
+        elif data == "favorites:list":
+            await query.answer()
+            await show_favorites(update, context)
+
+        elif data.startswith("fav:"):
+            # fav:add:movie:123 or fav:remove:series:456
+            action = parts[1]
+            ct_str = parts[2]
+            content_id = int(parts[3])
+            await toggle_favorite(update, context, action, ct_str, content_id)
+
+        # ── Plans ─────────────────────────────────────────────────
+        elif data == "plans:show":
+            await show_plans(update, context)
+
+        elif data.startswith("plans:"):
+            plan_key = parts[1]
+            if plan_key in ("lite", "pro"):
+                await select_plan(update, context, plan_key)
+
+        # ── Account ───────────────────────────────────────────────
+        elif data == "account:info":
+            await show_account(update, context)
+
+        # ── Admin ─────────────────────────────────────────────────
+        elif data == "admin:stats":
+            if settings.is_admin(query.from_user.id):
+                await query.answer()
+                await stats_command(update, context)
+
+        elif data == "admin:activate":
+            if settings.is_admin(query.from_user.id):
+                await activate_plan_start(update, context)
+
+        elif data == "admin:index":
+            if settings.is_admin(query.from_user.id):
+                await index_command(update, context)
+
+        elif data == "admin:broadcast":
+            if settings.is_admin(query.from_user.id):
+                await query.answer("Usa /broadcast <mensaje> en el chat.", show_alert=True)
+
+        elif data == "admin:users":
+            if settings.is_admin(query.from_user.id):
+                await query.answer()
+                total = await db.get_total_users()
+                active = await db.get_active_subscribers()
+                await query.edit_message_text(
+                    f"👥 *Usuarios*\n\n"
+                    f"Total: {total}\n"
+                    f"Suscriptores activos: {active}\n\n"
+                    f"Comandos:\n"
+                    f"`/activar <id> <lite|pro> [días]`\n"
+                    f"`/cancelar <id>`\n"
+                    f"`/ban <id>`\n"
+                    f"`/unban <id>`",
+                    parse_mode="Markdown",
+                )
+
+        elif data.startswith("admin:select_series:"):
+            idx = int(parts[2])
+            await handle_series_selection(update, context, idx)
+
+        else:
+            await query.answer()
+            logger.warning("Unhandled callback: %s", data)
+
+    except Exception as e:
+        logger.error("Callback error for '%s': %s", data, e, exc_info=True)
+        try:
+            await query.answer("❌ Error interno. Intenta de nuevo.", show_alert=True)
+        except Exception:
+            pass

@@ -1,0 +1,5 @@
+python-telegram-bot[ext]==21.*
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.19
+httpx>=0.25
+python-dotenv>=1.0

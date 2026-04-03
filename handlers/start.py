@@ -14,23 +14,11 @@ logger = logging.getLogger(__name__)
 # ── Main Menu Keyboard ───────────────────────────────────────────────────────
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
-    buttons = [
-        [
-            InlineKeyboardButton("🎬 Películas", callback_data="cat:movies:0"),
-            InlineKeyboardButton("📺 Series", callback_data="cat:series:0"),
-        ],
-        [
-            InlineKeyboardButton("🎌 Anime", callback_data="cat:anime:0"),
-            InlineKeyboardButton("🔍 Buscar", callback_data="search:start"),
-        ],
-        [
-            InlineKeyboardButton("⭐ Mis Favoritos", callback_data="favorites:list"),
-        ],
-    ]
+    buttons = []
     if settings.WEBAPP_URL:
         buttons.append([
             InlineKeyboardButton(
-                "🌐 Catálogo Web",
+                "🎥 Ver Catálogo",
                 web_app=WebAppInfo(url=settings.WEBAPP_URL),
             )
         ])
@@ -38,15 +26,14 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 WELCOME_TEXT = """
-🎬 *Bienvenido a CineStelar Premium*
+🎬 *¿Bienvenido a TodoCineHD!*
 
-Tu plataforma de entretenimiento en Telegram.
+Aquí encontrarás películas, series y anime para ver desde Telegram.
 
-📽️ *Películas* — Miles de títulos disponibles
-📺 *Series* — Temporadas completas
-🎌 *Anime* — Lo mejor del anime
+📺 *¿Quieres pedir algo?*
+Entra a @TodoCineHD y dínos qué quieres ver.
 
-Navega el catálogo y disfruta tu contenido favorito al instante.
+⬇️ Toca el botón para abrir el catálogo completo.
 """
 
 NOT_SUBSCRIBED_TEXT = """

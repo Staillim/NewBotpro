@@ -54,26 +54,6 @@
       text-align: center;
       margin-bottom: 20px;
     }
-    #ad-container {
-      width: 100%;
-      max-width: 360px;
-      min-height: 70px;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 18px;
-      overflow: hidden;
-      position: relative;
-    }
-    #ad-label {
-      font-size: 12px;
-      color: #6e7681;
-      padding: 16px;
-      text-align: center;
-    }
     #countdown-bar {
       width: 100%;
       max-width: 360px;
@@ -97,22 +77,22 @@
       margin-bottom: 20px;
       min-height: 20px;
     }
-    #watch-btn {
-      display: none;
+    #btn-ad, #btn-watch {
       width: 100%;
       max-width: 360px;
       padding: 15px;
-      background: linear-gradient(135deg, #e50914, #c40812);
       color: #fff;
       font-size: 16px;
       font-weight: 700;
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      margin-top: 4px;
       letter-spacing: 0.3px;
+      margin-top: 4px;
     }
-    #watch-btn:active { opacity: 0.85; }
+    #btn-ad  { background: linear-gradient(135deg, #1a73e8, #1558b0); }
+    #btn-watch { background: linear-gradient(135deg, #e50914, #c40812); }
+    #btn-ad:active, #btn-watch:active { opacity: 0.85; }
     #status {
       font-size: 15px;
       font-weight: 600;
@@ -128,15 +108,20 @@
 <body>
   <div id="poster-wrap"></div>
   <div id="content-title">Cargando...</div>
-  <div class="subtitle">Ver el anuncio para acceder al contenido</div>
+  <div class="subtitle">Ve el anuncio para desbloquear el contenido</div>
 
-  <div id="ad-container">
-    <span id="ad-label">📢 Anuncio</span>
+  <!-- Estado 1: botón inicial -->
+  <button id="btn-ad" onclick="startAd()">📢 Ver Anuncio</button>
+
+  <!-- Estado 2: countdown (oculto al inicio) -->
+  <div id="countdown-wrap" style="display:none; width:100%; max-width:360px;">
+    <div id="countdown-bar"><div id="countdown-fill"></div></div>
+    <div id="countdown-text">Espera <span id="cd-num">12</span>s...</div>
   </div>
 
-  <div id="countdown-bar"><div id="countdown-fill"></div></div>
-  <div id="countdown-text">Video disponible en <span id="cd-num">12</span>s</div>
-  <button id="watch-btn" onclick="sendContent()">▶️ Ver contenido</button>
+  <!-- Estado 3: botón ver contenido (oculto al inicio) -->
+  <button id="btn-watch" style="display:none;" onclick="sendContent()">▶️ Ver contenido</button>
+
   <div id="status"></div>
 
   <script>
@@ -144,18 +129,15 @@
     tg.ready();
     tg.expand();
 
-    // ── Read URL params ──────────────────────────────────────────────
-    const params   = new URLSearchParams(window.location.search);
+    const params      = new URLSearchParams(window.location.search);
     const userId      = params.get("user_id");
     const contentId   = params.get("content_id");
     const contentType = params.get("content_type");
     const title       = params.get("title") || "Contenido";
     const poster      = params.get("poster");
 
-    // ── Render title ─────────────────────────────────────────────────
     document.getElementById("content-title").textContent = title;
 
-    // ── Render poster ────────────────────────────────────────────────
     const posterWrap = document.getElementById("poster-wrap");
     if (poster) {
       const img = document.createElement("img");
@@ -174,35 +156,37 @@
       return d;
     }
 
-    // ── Ad countdown ──────────────────────────────────────────────────
-    const AD_SECONDS = 12;
-    let adDone = false;
+    // ── Estado 1 → 2: usuario toca "Ver Anuncio" ─────────────────────
+    function startAd() {
+      // Ocultar botón de anuncio
+      document.getElementById("btn-ad").style.display = "none";
 
-    // Always start countdown immediately — ad is a bonus, not a blocker
-    startCountdown();
+      // Mostrar countdown
+      document.getElementById("countdown-wrap").style.display = "block";
 
-    // Try to show ad once the external script finishes loading (poll up to 3s)
-    function tryShowAd(retries) {
-      if (typeof show_10827850 === 'function') {
-        try {
-          show_10827850({
-            type: 'inApp',
-            inAppSettings: {
-              frequency: 2,
-              capping: 0.1,
-              interval: 30,
-              timeout: 5,
-              everyPage: false
-            }
-          });
-        } catch (e) { /* ad failed silently — countdown still runs */ }
-      } else if (retries > 0) {
-        setTimeout(() => tryShowAd(retries - 1), 200);
+      // Disparar el anuncio (requiere interacción del usuario)
+      function tryShowAd(retries) {
+        if (typeof show_10827850 === 'function') {
+          try {
+            show_10827850({
+              type: 'inApp',
+              inAppSettings: {
+                frequency: 2,
+                capping: 0.1,
+                interval: 30,
+                timeout: 5,
+                everyPage: false
+              }
+            });
+          } catch (e) { /* falla silenciosa */ }
+        } else if (retries > 0) {
+          setTimeout(() => tryShowAd(retries - 1), 200);
+        }
       }
-    }
-    tryShowAd(15); // retry for up to 3 seconds
+      tryShowAd(15);
 
-    function startCountdown() {
+      // Iniciar countdown
+      const AD_SECONDS = 12;
       let remaining = AD_SECONDS;
       const fill = document.getElementById("countdown-fill");
       const num  = document.getElementById("cd-num");
@@ -210,30 +194,27 @@
       const iv = setInterval(() => {
         remaining -= 0.1;
         fill.style.width = Math.max(0, (remaining / AD_SECONDS) * 100) + "%";
-        num.textContent   = Math.max(0, Math.ceil(remaining));
+        num.textContent  = Math.max(0, Math.ceil(remaining));
         if (remaining <= 0) {
           clearInterval(iv);
-          finishAd();
+          showWatchButton();
         }
       }, 100);
     }
 
-    function finishAd() {
-      if (adDone) return;
-      adDone = true;
+    // ── Estado 2 → 3: countdown termina ──────────────────────────────
+    function showWatchButton() {
+      document.getElementById("countdown-wrap").style.display = "none";
 
-      document.getElementById("countdown-bar").style.display = "none";
-      document.getElementById("countdown-text").style.display = "none";
-
-      // Label based on content type
       const labels = { movie: "🎬 Ver Película", ep: "📺 Ver Episodio" };
-      const btn = document.getElementById("watch-btn");
+      const btn = document.getElementById("btn-watch");
       btn.textContent = labels[contentType] || "▶️ Ver contenido";
       btn.style.display = "block";
     }
 
+    // ── Estado 3: usuario toca "Ver Película/Episodio" ────────────────
     function sendContent() {
-      const btn = document.getElementById("watch-btn");
+      const btn = document.getElementById("btn-watch");
       btn.disabled = true;
       btn.textContent = "⏳ Enviando...";
 

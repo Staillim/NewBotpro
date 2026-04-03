@@ -101,6 +101,25 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             f"Ya puedes disfrutar el catálogo completo sin anuncios. 🎬",
             parse_mode="Markdown",
         )
+
+        # Notify admin
+        user = update.effective_user
+        uname = f"@{user.username}" if user.username else user.first_name
+        for admin_id in settings.ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        f"💰 *Nuevo plan adquirido*\n\n"
+                        f"👤 {uname} (`{user_id}`)\n"
+                        f"📦 {label}\n"
+                        f"💳 `{payment.telegram_payment_charge_id}`"
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as notify_exc:
+                logger.warning("Admin notify failed: %s", notify_exc)
+
     except Exception as e:
         logger.error("Failed to activate plan for user %s: %s", user_id, e)
         await update.message.reply_text(

@@ -101,6 +101,11 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not user or user.is_bot:
         return
 
+    # Auto-register this group silently on every message
+    chat = update.effective_chat
+    if chat and chat.type in ("group", "supergroup"):
+        await db.register_group(chat.id, chat.title)
+
     text = message.text.strip()
     is_search, score = _is_potential_search(text)
     if not is_search:
@@ -163,3 +168,25 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     except Exception:
         logger.warning("group_search: failed to send reply", exc_info=True)
+
+
+# ── Group membership tracking ─────────────────────────────────────────────────
+
+async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Track when bot is added or removed from a group."""
+    event = update.my_chat_member
+    if not event:
+        return
+
+    chat = event.chat
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    new_status = event.new_chat_member.status  # "member", "administrator", "left", "kicked"
+
+    if new_status in ("member", "administrator"):
+        await db.register_group(chat.id, chat.title)
+        logger.info("Bot added to group: %s (%s)", chat.title, chat.id)
+    elif new_status in ("left", "kicked", "restricted"):
+        await db.remove_group(chat.id)
+        logger.info("Bot removed from group: %s (%s)", chat.title, chat.id)

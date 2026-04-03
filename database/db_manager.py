@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from database.models import (
     Base,
     BotConfig,
+    BotGroup,
     ContentType,
     Episode,
     Favorite,
@@ -436,3 +437,40 @@ async def set_config(key: str, value: str):
         else:
             s.add(BotConfig(key=key, value=value))
         await s.commit()
+
+
+# ── Bot Groups ────────────────────────────────────────────────────────────────
+
+async def register_group(chat_id: int, title: str = None) -> None:
+    """Upsert a group where the bot is active."""
+    async with async_session() as s:
+        result = await s.execute(select(BotGroup).where(BotGroup.chat_id == chat_id))
+        group = result.scalar_one_or_none()
+        if group:
+            group.active = True
+            group.updated_at = _now()
+            if title:
+                group.title = title
+        else:
+            s.add(BotGroup(chat_id=chat_id, title=title))
+        await s.commit()
+
+
+async def remove_group(chat_id: int) -> None:
+    """Mark a group as inactive (bot was removed)."""
+    async with async_session() as s:
+        result = await s.execute(select(BotGroup).where(BotGroup.chat_id == chat_id))
+        group = result.scalar_one_or_none()
+        if group:
+            group.active = False
+            group.updated_at = _now()
+            await s.commit()
+
+
+async def get_active_groups() -> list[int]:
+    """Return chat_ids of all active groups."""
+    async with async_session() as s:
+        result = await s.execute(
+            select(BotGroup.chat_id).where(BotGroup.active == True)  # noqa: E712
+        )
+        return [row[0] for row in result.all()]

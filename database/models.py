@@ -256,3 +256,16 @@ class BotConfig(Base):
     key = Column(String(100), unique=True, nullable=False)
     value = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.utcnow())
+
+
+# ── Bot Groups ────────────────────────────────────────────────────────────────
+
+class BotGroup(Base):
+    """Tracks every group/supergroup where the bot is a member."""
+    __tablename__ = "bot_groups"
+
+    chat_id = Column(BigInteger, primary_key=True)
+    title = Column(String(500), nullable=True)
+    active = Column(Boolean, default=True)
+    registered_at = Column(DateTime, default=lambda: datetime.utcnow())
+    updated_at = Column(DateTime, default=lambda: datetime.utcnow())

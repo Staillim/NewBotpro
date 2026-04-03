@@ -11,7 +11,7 @@ Flow:
 import asyncio
 import logging
 
-from telegram import Message, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.error import RetryAfter, TimedOut
 from telegram.ext import ContextTypes
 
@@ -57,6 +57,43 @@ async def _notify(context, text: str) -> None:
         )
     except Exception as exc:
         logger.warning("Admin notification failed: %s", exc)
+
+
+async def _notify_groups(context, title: str, year: str | None,
+                         poster_url: str | None, deeplink: str,
+                         emoji: str = "🎬") -> None:
+    """Send new-content notification to every registered group."""
+    groups = await db.get_active_groups()
+    if not groups:
+        return
+
+    year_str = f" ({year})" if year else ""
+    text = f"{emoji} *¡Nuevo contenido disponible!*\n\n*{title}{year_str}*\n\n👉 Ver ahora"
+    url = f"https://t.me/{settings.BOT_USERNAME}?start={deeplink}"
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"{emoji} Ver ahora", url=url)]])
+
+    for chat_id in groups:
+        try:
+            if poster_url:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=poster_url,
+                    caption=text,
+                    reply_markup=kb,
+                    parse_mode="Markdown",
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=kb,
+                    parse_mode="Markdown",
+                )
+            await asyncio.sleep(0.3)  # small delay between groups
+        except RetryAfter as exc:
+            await asyncio.sleep(exc.retry_after + 1)
+        except Exception as exc:
+            logger.warning("Group notify failed for %s: %s", chat_id, exc)
 
 
 # ── Main channel-post handler ─────────────────────────────────────────────────
@@ -110,6 +147,17 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{emoji} *{show.name}*\n"
             f"📦 {count} episodio(s) indexado(s)",
         )
+        # Notify groups only when a new show was created (count > 0)
+        if count > 0:
+            content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
+            await _notify_groups(
+                context,
+                title=show.name,
+                year=show.year,
+                poster_url=show.poster_url,
+                deeplink=f"watch_{content_type_str}_{show.id}",
+                emoji=emoji,
+            )
         return
 
     # ── Video file ────────────────────────────────────────────────────────────
@@ -350,3 +398,15 @@ async def _do_index_movie(file_id: str, post: Message, context) -> None:
 
     await _notify(context, f"✅ *{title}* {'(' + str(year_val) + ')' if year_val else ''} indexada.")
     logger.info("Movie indexed: %s (msg_id=%s)", title, post.message_id)
+
+    # Notify all registered groups
+    movie = (await db.search_movies(title, limit=1) or [None])[0]
+    if movie:
+        await _notify_groups(
+            context,
+            title=movie.title,
+            year=movie.year,
+            poster_url=movie.poster_url,
+            deeplink=f"watch_movie_{movie.id}",
+            emoji="🎬",
+        )

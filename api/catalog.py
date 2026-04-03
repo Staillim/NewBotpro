@@ -13,6 +13,7 @@ from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
+    ChatMemberHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -40,7 +41,7 @@ from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
 from handlers.intake import handle_channel_post
 from handlers.payment import pre_checkout_handler, successful_payment_handler
-from handlers.group_search import handle_group_message
+from handlers.group_search import handle_group_message, handle_my_chat_member
 from handlers.search import handle_search_query
 from handlers.start import start_command
 
@@ -101,6 +102,7 @@ def _build_tg_application():
         filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
         handle_group_message,
     ))
+    tg.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     tg.add_handler(MessageHandler(
         filters.UpdateType.CHANNEL_POST,
         handle_channel_post,

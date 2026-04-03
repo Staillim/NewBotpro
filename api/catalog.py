@@ -335,6 +335,29 @@ async def show_detail(show_id: int):
     return _show(s, detail=True)
 
 
+@app.get("/api/show/{show_id}/episodes")
+async def show_episodes(show_id: int):
+    """Return all episodes of a show grouped by season."""
+    seasons = await db.get_seasons(show_id)
+    if not seasons:
+        return {"seasons": []}
+    result = []
+    for season in seasons:
+        eps = await db.get_episodes(show_id, season)
+        result.append({
+            "season": season,
+            "episodes": [
+                {
+                    "id": ep.id,
+                    "episode_number": ep.episode_number,
+                    "title": ep.title or f"Episodio {ep.episode_number}",
+                }
+                for ep in eps
+            ],
+        })
+    return {"seasons": result}
+
+
 # ── Serializers ───────────────────────────────────────────────────────────────
 
 def _movie(m, detail: bool = False) -> dict:

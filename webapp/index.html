@@ -201,6 +201,28 @@
       transition: opacity .25s; white-space: nowrap; pointer-events: none;
     }
     .toast.show { opacity: 1; }
+
+    /* ── Episode list ── */
+    .ep-season-title {
+      font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; color: var(--text-muted); margin: 14px 0 6px;
+    }
+    .ep-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+    .ep-btn {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+      color: var(--text); font-size: 0.85rem; cursor: pointer;
+      text-align: left; transition: background .15s;
+    }
+    .ep-btn:active { background: var(--border); }
+    .ep-num {
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--pink));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.72rem; font-weight: 800; color: #fff;
+    }
+    .ep-title { flex: 1; line-height: 1.3; }
   </style>
 </head>
 <body>  <!-- Libtl SDK - In-App Interstitial -->
@@ -391,26 +413,28 @@
       try {
         const endpoint = type === 'movie' ? `/api/movie/${id}` : `/api/show/${id}`;
         const item = await fetch(endpoint).then(r => r.json());
-        renderModal(item, id, type);
+
+        if (type === 'movie') {
+          renderMovieModal(item, id);
+        } else {
+          // Fetch episodes alongside detail
+          const epsData = await fetch(`/api/show/${id}/episodes`).then(r => r.json());
+          renderShowModal(item, id, type, epsData.seasons || []);
+        }
       } catch {
         content.innerHTML = `<div class="empty"><span>⚠️</span>Error al cargar detalles.</div>`;
       }
     }
 
-    function renderModal(item, id, type) {
+    function renderMovieModal(item, id) {
       const content = document.getElementById('modalContent');
-      const badgeClass = `type-${type}`;
-      const badgeLabel = type === 'movie' ? '🎬 Película' : type === 'series' ? '📺 Serie' : '🎌 Anime';
       const rating = item.vote_average ? `⭐ ${item.vote_average.toFixed(1)} / 10` : '';
       const runtime = item.runtime ? ` · ${item.runtime} min` : '';
-      const seasons = item.seasons ? ` · ${item.seasons} temporada${item.seasons !== 1 ? 's' : ''}` : '';
+      const deepLink = `https://t.me/${esc(botUsername)}?start=watch_movie_${id}`;
 
       const backdropHtml = item.backdrop_url
-        ? `<img class="modal-backdrop" src="${esc(item.backdrop_url)}" alt="" onerror="this.outerHTML='<div class=modal-backdrop-placeholder>${type==='movie'?'🎬':type==='series'?'📺':'🎌'}</div>'">`
-        : `<div class="modal-backdrop-placeholder">${type === 'movie' ? '🎬' : type === 'series' ? '📺' : '🎌'}</div>`;
-
-      const deepLink = `https://t.me/${esc(botUsername)}?start=watch_${type}_${id}`;
-      const btnLabel = type === 'movie' ? '▶️ Ver en el Bot' : '📂 Ver en el Bot';
+        ? `<img class="modal-backdrop" src="${esc(item.backdrop_url)}" alt="" onerror="this.outerHTML='<div class=modal-backdrop-placeholder>🎬</div>'">`
+        : `<div class="modal-backdrop-placeholder">🎬</div>`;
 
       content.innerHTML = `
         <div style="position:relative">
@@ -422,17 +446,64 @@
           ${item.original_title && item.original_title !== item.title
             ? `<div style="font-size:.75rem;color:var(--text-muted);margin-bottom:6px">${esc(item.original_title)}</div>` : ''}
           <div class="modal-meta">
-            <span class="badge ${badgeClass}">${badgeLabel}</span>
+            <span class="badge type-movie">🎬 Película</span>
             ${item.year ? `<span class="badge">${esc(item.year)}</span>` : ''}
-            ${rating ? `<span class="modal-rating">${rating}${runtime}${seasons}</span>` : ''}
+            ${rating ? `<span class="modal-rating">${rating}${runtime}</span>` : ''}
           </div>
           ${item.genres ? `<div class="modal-genres">🏷️ ${esc(item.genres)}</div>` : ''}
           ${item.overview
             ? `<div class="modal-overview">${esc(item.overview)}</div>`
             : `<div class="modal-overview">Sin descripción disponible.</div>`}
-          <button class="btn-watch" onclick="openInBot('${esc(deepLink)}')">
-            ${btnLabel}
-          </button>
+          <button class="btn-watch" onclick="openInBot('${esc(deepLink)}')">▶️ Ver Película</button>
+        </div>`;
+
+      document.getElementById('modalClose').addEventListener('click', closeModal);
+    }
+
+    function renderShowModal(item, id, type, seasons) {
+      const content = document.getElementById('modalContent');
+      const emoji = type === 'anime' ? '🎌' : '📺';
+      const rating = item.vote_average ? `⭐ ${item.vote_average.toFixed(1)} / 10` : '';
+      const badgeClass = type === 'anime' ? 'type-anime' : 'type-series';
+      const badgeLabel = type === 'anime' ? '🎌 Anime' : '📺 Serie';
+
+      const backdropHtml = item.backdrop_url
+        ? `<img class="modal-backdrop" src="${esc(item.backdrop_url)}" alt="" onerror="this.outerHTML='<div class=modal-backdrop-placeholder>${emoji}</div>'">`
+        : `<div class="modal-backdrop-placeholder">${emoji}</div>`;
+
+      // Build episode list HTML
+      let epListHtml = '';
+      if (seasons.length === 0) {
+        epListHtml = `<div style="color:var(--text-muted);font-size:.85rem;padding:12px 0">Aún no hay episodios disponibles.</div>`;
+      } else {
+        seasons.forEach(s => {
+          epListHtml += `<div class="ep-season-title">Temporada ${s.season}</div><div class="ep-list">`;
+          s.episodes.forEach(ep => {
+            const deepLink = `https://t.me/${esc(botUsername)}?start=watch_ep_${ep.id}`;
+            epListHtml += `
+              <button class="ep-btn" onclick="openInBot('${esc(deepLink)}')">
+                <span class="ep-num">${ep.episode_number}</span>
+                <span class="ep-title">${esc(ep.title)}</span>
+              </button>`;
+          });
+          epListHtml += `</div>`;
+        });
+      }
+
+      content.innerHTML = `
+        <div style="position:relative">
+          ${backdropHtml}
+          <button class="modal-close" id="modalClose">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-title">${esc(item.title)}</div>
+          <div class="modal-meta">
+            <span class="badge ${badgeClass}">${badgeLabel}</span>
+            ${item.year ? `<span class="badge">${esc(item.year)}</span>` : ''}
+            ${rating ? `<span class="modal-rating">${rating}</span>` : ''}
+          </div>
+          ${item.genres ? `<div class="modal-genres">🏷️ ${esc(item.genres)}</div>` : ''}
+          ${epListHtml}
         </div>`;
 
       document.getElementById('modalClose').addEventListener('click', closeModal);

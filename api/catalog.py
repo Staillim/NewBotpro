@@ -125,7 +125,10 @@ async def _ensure_webhook() -> None:
         await _tg_app.bot.set_webhook(
             url=_webhook_url,
             drop_pending_updates=False,
-            allowed_updates=["message", "callback_query", "channel_post", "my_chat_member"],
+            allowed_updates=[
+                "message", "callback_query", "channel_post",
+                "my_chat_member", "pre_checkout_query",
+            ],
         )
         wh = await _tg_app.bot.get_webhook_info()
         logger.info("Webhook SET → %s | pending=%s | error=%s",

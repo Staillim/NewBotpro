@@ -269,6 +269,13 @@ async def get_config():
     return {"bot_username": settings.BOT_USERNAME}
 
 
+@app.get("/api/check-sub")
+async def check_subscription(user_id: int):
+    """Check if a user has an active subscription plan."""
+    is_active, plan = await db.check_subscription(user_id)
+    return {"is_active": is_active, "plan": plan.value if plan else "none"}
+
+
 # ── Movies ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/movies")

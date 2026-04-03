@@ -225,29 +225,49 @@
     .ep-title { flex: 1; line-height: 1.3; }
   </style>
 </head>
-<body>  <!-- Libtl SDK - In-App Interstitial -->
-  <script src='//libtl.com/sdk.js' data-zone='10827850' data-sdk='show_10827850'></script>
+<body>  <!-- Libtl SDK loaded dynamically only for non-subscribers -->
   <script>
     window.addEventListener('load', function() {
-      function tryInAppAd(retries) {
-        if (typeof show_10827850 === 'function') {
-          try {
-            show_10827850({
-              type: 'inApp',
-              inAppSettings: {
-                frequency: 2,
-                capping: 0.1,
-                interval: 30,
-                timeout: 5,
-                everyPage: false
-              }
-            });
-          } catch(e) {}
-        } else if (retries > 0) {
-          setTimeout(() => tryInAppAd(retries - 1), 300);
-        }
-      }
-      tryInAppAd(20);
+      // Get user_id from Telegram WebApp
+      const tgInit = window.Telegram?.WebApp?.initDataUnsafe;
+      const userId = tgInit?.user?.id;
+      if (!userId) return;
+
+      // Check if user has active plan — skip ads if so
+      fetch('/api/check-sub?user_id=' + userId)
+        .then(r => r.json())
+        .then(data => {
+          if (data.is_active) return; // subscriber — no ads
+
+          // Load Libtl SDK dynamically
+          const s = document.createElement('script');
+          s.src = '//libtl.com/sdk.js';
+          s.setAttribute('data-zone', '10827850');
+          s.setAttribute('data-sdk', 'show_10827850');
+          document.head.appendChild(s);
+
+          // Wait for SDK and show In-App Interstitial
+          function tryInAppAd(retries) {
+            if (typeof show_10827850 === 'function') {
+              try {
+                show_10827850({
+                  type: 'inApp',
+                  inAppSettings: {
+                    frequency: 2,
+                    capping: 0.1,
+                    interval: 30,
+                    timeout: 5,
+                    everyPage: false
+                  }
+                });
+              } catch(e) {}
+            } else if (retries > 0) {
+              setTimeout(() => tryInAppAd(retries - 1), 300);
+            }
+          }
+          setTimeout(() => tryInAppAd(20), 500);
+        })
+        .catch(() => {}); // if check fails, no ads shown (safe default)
     });
   </script>
   <header>

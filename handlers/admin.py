@@ -50,19 +50,35 @@ async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
         total_movies = await db.get_total_movies()
         total_series = await db.get_total_shows(ContentType.SERIES)
         total_anime = await db.get_total_shows(ContentType.ANIME)
+        new_users_today = await db.get_new_users_count(days=1)
+        new_users_week = await db.get_new_users_count(days=7)
+        plans_by_type = await db.get_subscribers_by_plan()
+        new_content = await db.get_new_content_count(days=7)
+        lite_count = plans_by_type.get("lite", 0)
+        pro_count = plans_by_type.get("pro", 0)
     except Exception:
         total_users = active_subs = total_movies = total_series = total_anime = "?"
+        new_users_today = new_users_week = lite_count = pro_count = "?"
+        new_content = {"movies": "?", "shows": "?"}
+
+    total_content = sum(x for x in [total_movies, total_series, total_anime] if isinstance(x, int))
 
     text = (
-        "🛠️ *Panel de Administración — TodoCineHD*\n\n"
-        "📊 *Estadísticas rápidas*\n"
-        f"👥 Usuarios: `{total_users}`\n"
-        f"💎 Suscriptores activos: `{active_subs}`\n\n"
+        "🛠️ *Panel de Administración — CineStelar*\n\n"
+        "👥 *Usuarios*\n"
+        f"  Total: `{total_users}`\n"
+        f"  Nuevos hoy: `{new_users_today}`\n"
+        f"  Nuevos esta semana: `{new_users_week}`\n\n"
+        "💎 *Suscripciones activas*\n"
+        f"  Total: `{active_subs}`\n"
+        f"  💫 Lite: `{lite_count}`\n"
+        f"  👑 Pro: `{pro_count}`\n\n"
         "🎬 *Contenido*\n"
-        f"🎬 Películas: `{total_movies}`\n"
-        f"📺 Series: `{total_series}`\n"
-        f"🎌 Anime: `{total_anime}`\n"
-        f"📦 Total: `{sum(x for x in [total_movies, total_series, total_anime] if isinstance(x, int))}`"
+        f"  🎬 Películas: `{total_movies}`\n"
+        f"  📺 Series: `{total_series}`\n"
+        f"  🎌 Anime: `{total_anime}`\n"
+        f"  📦 Total: `{total_content}`\n"
+        f"  ✨ Agregado esta semana: `{new_content['movies']}` pelís · `{new_content['shows']}` series"
     )
 
     buttons = [
@@ -74,10 +90,7 @@ async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🎬 Administrar Contenido", callback_data="admin:content"),
         ],
         [
-            InlineKeyboardButton("📥 Indexar Canal", callback_data="admin:index"),
             InlineKeyboardButton("📢 Broadcast", callback_data="admin:broadcast"),
-        ],
-        [
             InlineKeyboardButton("💎 Activar Plan", callback_data="admin:activate"),
         ],
     ]

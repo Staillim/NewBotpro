@@ -136,6 +136,41 @@ async def get_active_subscribers() -> int:
         return result.scalar() or 0
 
 
+async def get_new_users_count(days: int = 7) -> int:
+    async with async_session() as s:
+        since = datetime.utcnow() - timedelta(days=days)
+        result = await s.execute(
+            select(func.count(User.id)).where(User.joined_at >= since)
+        )
+        return result.scalar() or 0
+
+
+async def get_subscribers_by_plan() -> dict:
+    async with async_session() as s:
+        result = await s.execute(
+            select(User.plan, func.count(User.id))
+            .where(User.plan != PlanType.NONE, User.plan_status == SubStatus.ACTIVE)
+            .group_by(User.plan)
+        )
+        counts = {str(row[0].value): row[1] for row in result.all()}
+        return counts
+
+
+async def get_new_content_count(days: int = 7) -> dict:
+    async with async_session() as s:
+        since = datetime.utcnow() - timedelta(days=days)
+        movies_r = await s.execute(
+            select(func.count(Movie.id)).where(Movie.indexed_at >= since)
+        )
+        shows_r = await s.execute(
+            select(func.count(TvShow.id)).where(TvShow.indexed_at >= since)
+        )
+        return {
+            "movies": movies_r.scalar() or 0,
+            "shows": shows_r.scalar() or 0,
+        }
+
+
 # â”€â”€ Subscriptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def activate_plan(user_id: int, plan: PlanType, days: int = 30,

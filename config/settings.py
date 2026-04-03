@@ -41,6 +41,9 @@ class Settings:
     # TMDb
     TMDB_API_KEY: str = os.getenv("TMDB_API_KEY", "")
 
+    # Ad system
+    LIBTL_ZONE_ID: str = os.getenv("LIBTL_ZONE_ID", "")
+
     # Subscription prices (reference only – payment handled externally or via Telegram Stars)
     PLAN_LITE_PRICE: float = 3.0  # USD – streaming only
     PLAN_PRO_PRICE: float = 5.0   # USD – streaming + download

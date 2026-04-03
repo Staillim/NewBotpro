@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TodoCineHD — Ver Anuncio</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      gap: 0;
+    }
+    #poster-wrap { margin-bottom: 16px; }
+    .poster {
+      width: 130px;
+      height: 195px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      display: block;
+    }
+    .poster-placeholder {
+      width: 130px;
+      height: 195px;
+      border-radius: 12px;
+      background: #1e2736;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 52px;
+    }
+    #content-title {
+      font-size: 17px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 6px;
+      max-width: 320px;
+      line-height: 1.3;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #8b949e;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    #ad-container {
+      width: 100%;
+      max-width: 360px;
+      min-height: 70px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    #ad-label {
+      font-size: 12px;
+      color: #6e7681;
+      padding: 16px;
+      text-align: center;
+    }
+    #countdown-bar {
+      width: 100%;
+      max-width: 360px;
+      height: 5px;
+      background: #161b22;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    #countdown-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #e50914, #ff4d4d);
+      width: 100%;
+      border-radius: 3px;
+      transition: width 0.1s linear;
+    }
+    #countdown-text {
+      font-size: 13px;
+      color: #8b949e;
+      text-align: center;
+      margin-bottom: 20px;
+      min-height: 20px;
+    }
+    #status {
+      font-size: 15px;
+      font-weight: 600;
+      text-align: center;
+      min-height: 24px;
+    }
+    .success { color: #3fb950; }
+    .error { color: #f85149; }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #8b949e;
+      border-top-color: #e6edf3;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="poster-wrap"></div>
+  <div id="content-title">Cargando...</div>
+  <div class="subtitle">Ver el anuncio para acceder al contenido</div>
+
+  <div id="ad-container">
+    <span id="ad-label">📢 Anuncio</span>
+  </div>
+
+  <div id="countdown-bar"><div id="countdown-fill"></div></div>
+  <div id="countdown-text">Espera <span id="cd-num">5</span>s...</div>
+  <div id="status"></div>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    // ── Read URL params ──────────────────────────────────────────────
+    const params   = new URLSearchParams(window.location.search);
+    const userId      = params.get("user_id");
+    const contentId   = params.get("content_id");
+    const contentType = params.get("content_type");
+    const title       = params.get("title") || "Contenido";
+    const poster      = params.get("poster");
+
+    // ── Render title ─────────────────────────────────────────────────
+    document.getElementById("content-title").textContent = title;
+
+    // ── Render poster ────────────────────────────────────────────────
+    const posterWrap = document.getElementById("poster-wrap");
+    if (poster) {
+      const img = document.createElement("img");
+      img.className = "poster";
+      img.src = poster;
+      img.onerror = () => img.replaceWith(makePlaceholder());
+      posterWrap.appendChild(img);
+    } else {
+      posterWrap.appendChild(makePlaceholder());
+    }
+
+    function makePlaceholder() {
+      const d = document.createElement("div");
+      d.className = "poster-placeholder";
+      d.textContent = contentType === "movie" ? "🎬" : "📺";
+      return d;
+    }
+
+    // ── Ad countdown ──────────────────────────────────────────────────
+    const AD_SECONDS = 5;
+    let adDone = false;
+
+    fetch("/api/ad-config")
+      .then(r => r.json())
+      .then(cfg => {
+        if (cfg.zone_id) {
+          loadLibtlAd(cfg.zone_id);
+        } else {
+          startCountdown();
+        }
+      })
+      .catch(() => startCountdown());
+
+    function loadLibtlAd(zoneId) {
+      const container = document.getElementById("ad-container");
+      container.innerHTML = "";
+      const script = document.createElement("script");
+      script.src = `//cdn.libtl.com/show_${zoneId}.js`;
+      script.onerror = () => startCountdown();
+      document.head.appendChild(script);
+      startCountdown();
+    }
+
+    function startCountdown() {
+      let remaining = AD_SECONDS;
+      const fill = document.getElementById("countdown-fill");
+      const num  = document.getElementById("cd-num");
+
+      const iv = setInterval(() => {
+        remaining -= 0.1;
+        fill.style.width = Math.max(0, (remaining / AD_SECONDS) * 100) + "%";
+        num.textContent   = Math.max(0, Math.ceil(remaining));
+        if (remaining <= 0) {
+          clearInterval(iv);
+          finishAd();
+        }
+      }, 100);
+    }
+
+    function finishAd() {
+      if (adDone) return;
+      adDone = true;
+
+      document.getElementById("countdown-bar").style.display = "none";
+      document.getElementById("countdown-text").style.display = "none";
+      document.getElementById("status").innerHTML =
+        '<span class="spinner"></span> Enviando tu video...';
+
+      fetch("/api/ad-completed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id:      parseInt(userId, 10),
+          content_id:   parseInt(contentId, 10),
+          content_type: contentType
+        })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === "ok") {
+          document.getElementById("status").innerHTML =
+            '<span class="success">✅ Video enviado al chat</span>';
+          setTimeout(() => tg.close(), 2000);
+        } else {
+          document.getElementById("status").innerHTML =
+            '<span class="error">❌ Error al enviar. Intenta de nuevo.</span>';
+        }
+      })
+      .catch(() => {
+        document.getElementById("status").innerHTML =
+          '<span class="error">❌ Error de conexión.</span>';
+      });
+    }
+  </script>
+</body>
+</html>

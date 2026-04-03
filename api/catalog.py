@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -360,6 +361,105 @@ def _show(s, detail: bool = False) -> dict:
             "original_title": s.original_name,
         })
     return d
+
+
+# ── Ad system ─────────────────────────────────────────────────────────────────
+
+@app.get("/ad")
+async def serve_ad_viewer():
+    ad_file = WEBAPP_DIR / "ad_viewer.html"
+    if not ad_file.exists():
+        raise HTTPException(status_code=404, detail="Ad viewer not found")
+    return FileResponse(str(ad_file))
+
+
+@app.get("/api/ad-config")
+async def ad_config():
+    return {"zone_id": settings.LIBTL_ZONE_ID}
+
+
+class AdCompletedPayload(BaseModel):
+    user_id: int
+    content_id: int
+    content_type: str  # "movie" or "ep"
+
+
+@app.post("/api/ad-completed")
+async def ad_completed(payload: AdCompletedPayload):
+    if _tg_app is None:
+        raise HTTPException(status_code=503, detail="Bot not ready")
+
+    if payload.content_type == "movie":
+        movie = await db.get_movie(payload.content_id)
+        if not movie:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        async def _send_movie():
+            caption = f"🎬 *{movie.title}* ({movie.year or ''})\n\n_TodoCineHD_"
+            try:
+                await _tg_app.bot.send_video(
+                    chat_id=payload.user_id,
+                    video=movie.file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+                await db.log_activity(payload.user_id, "watch_movie_ad", movie.id, "movie")
+            except Exception:
+                try:
+                    await _tg_app.bot.send_document(
+                        chat_id=payload.user_id,
+                        document=movie.file_id,
+                        caption=caption,
+                        parse_mode="Markdown",
+                    )
+                    await db.log_activity(payload.user_id, "watch_movie_ad", movie.id, "movie")
+                except Exception as e2:
+                    logger.error("ad_completed: failed to send movie %s to %s: %s",
+                                 payload.content_id, payload.user_id, e2)
+
+        _fire(_send_movie())
+
+    elif payload.content_type == "ep":
+        ep = await db.get_episode(payload.content_id)
+        if not ep:
+            raise HTTPException(status_code=404, detail="Not found")
+        show = await db.get_show(ep.tv_show_id)
+        show_name = show.name if show else "Serie"
+        ep_title = ep.title or f"Episodio {ep.episode_number}"
+
+        async def _send_ep():
+            caption = (
+                f"📺 *{show_name}*\n"
+                f"T{ep.season_number}E{ep.episode_number}: {ep_title}\n\n"
+                f"_TodoCineHD_"
+            )
+            try:
+                await _tg_app.bot.send_video(
+                    chat_id=payload.user_id,
+                    video=ep.file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+                await db.log_activity(payload.user_id, "watch_episode_ad", ep.id, "series")
+            except Exception:
+                try:
+                    await _tg_app.bot.send_document(
+                        chat_id=payload.user_id,
+                        document=ep.file_id,
+                        caption=caption,
+                        parse_mode="Markdown",
+                    )
+                    await db.log_activity(payload.user_id, "watch_episode_ad", ep.id, "series")
+                except Exception as e2:
+                    logger.error("ad_completed: failed to send ep %s to %s: %s",
+                                 payload.content_id, payload.user_id, e2)
+
+        _fire(_send_ep())
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid content_type")
+
+    return {"status": "ok"}
 
 
 # ── Serve static WebApp - must be the last route ──────────────────────────────

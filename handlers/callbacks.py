@@ -1,8 +1,9 @@
 """Central callback query router."""
 
 import logging
+import urllib.parse
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -107,6 +108,41 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("watch:ep:"):
             episode_id = int(parts[2])
             await watch_episode(update, context, episode_id)
+
+        # ── Watch Ad (open Mini App after subscription check fails) ───
+        elif data.startswith("watch_ad:"):
+            # watch_ad:movie:42  /  watch_ad:ep:42
+            content_kind = parts[1]   # "movie" or "ep"
+            content_id   = int(parts[2])
+
+            if content_kind == "movie":
+                item = await db.get_movie(content_id)
+                title  = item.title     if item else "Película"
+                poster = item.poster_url if item else ""
+            else:
+                ep     = await db.get_episode(content_id)
+                show   = await db.get_show(ep.tv_show_id) if ep else None
+                ep_num = ep.episode_number if ep else 0
+                ep_ttl = (ep.title or f"Episodio {ep_num}") if ep else "Episodio"
+                title  = f"{show.name} — {ep_ttl}" if show else ep_ttl
+                poster = (show.poster_url or "") if show else ""
+
+            base_url = settings.WEBAPP_URL.rstrip("/")
+            qs = urllib.parse.urlencode({
+                "user_id":      query.from_user.id,
+                "content_id":   content_id,
+                "content_type": content_kind,
+                "title":        title,
+                "poster":       poster,
+            })
+            webapp_url = f"{base_url}/ad?{qs}"
+
+            btn = InlineKeyboardButton(
+                "📺 Ver anuncio ahora",
+                web_app=WebAppInfo(url=webapp_url),
+            )
+            await query.answer()
+            await query.message.edit_reply_markup(InlineKeyboardMarkup([[btn]]))
 
         # ── Download ──────────────────────────────────────────────
         elif data.startswith("download:movie:"):

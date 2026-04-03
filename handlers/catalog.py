@@ -268,6 +268,41 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
         await query.answer("Película no encontrada.", show_alert=True)
         return
 
+    user_id = query.from_user.id
+    is_active, _ = await db.check_subscription(user_id)
+
+    if not is_active:
+        await query.answer()
+        title = movie.title or "Película"
+        caption = (
+            f"🎬 *{title}*\n\n"
+            f"_Necesitas un plan o ver un anuncio para continuar._"
+        )
+        buttons = [
+            [InlineKeyboardButton("📺 Ver con anuncio", callback_data=f"watch_ad:movie:{movie.id}")],
+            [InlineKeyboardButton("💎 Adquirir plan", callback_data="plans:show")],
+        ]
+        if movie.poster_url:
+            try:
+                await query.message.delete()
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=movie.poster_url,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode="Markdown",
+                )
+                return
+            except Exception:
+                pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=caption,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="Markdown",
+        )
+        return
+
     await query.answer("📤 Enviando película...")
     try:
         await context.bot.send_video(
@@ -305,6 +340,42 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
     show = await db.get_show(ep.tv_show_id)
     show_name = show.name if show else "Serie"
     ep_title = ep.title or f"Episodio {ep.episode_number}"
+
+    user_id = query.from_user.id
+    is_active, _ = await db.check_subscription(user_id)
+
+    if not is_active:
+        await query.answer()
+        ep_label = f"T{ep.season_number}E{ep.episode_number}: {ep_title}"
+        caption = (
+            f"📺 *{show_name}*\n{ep_label}\n\n"
+            f"_Necesitas un plan o ver un anuncio para continuar._"
+        )
+        buttons = [
+            [InlineKeyboardButton("📺 Ver con anuncio", callback_data=f"watch_ad:ep:{ep.id}")],
+            [InlineKeyboardButton("💎 Adquirir plan", callback_data="plans:show")],
+        ]
+        poster_url = show.poster_url if show else None
+        if poster_url:
+            try:
+                await query.message.delete()
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=poster_url,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode="Markdown",
+                )
+                return
+            except Exception:
+                pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=caption,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode="Markdown",
+        )
+        return
 
     await query.answer("📤 Enviando episodio...")
     try:

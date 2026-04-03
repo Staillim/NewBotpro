@@ -390,6 +390,24 @@ async def delete_show(show_id: int) -> bool:
         return result.rowcount > 0
 
 
+async def clear_all_content() -> dict:
+    """Delete ALL movies, episodes, shows and favorites. Returns counts."""
+    async with async_session() as s:
+        fav = await s.execute(delete(Favorite))
+        ep = await s.execute(delete(Episode))
+        sh = await s.execute(delete(TvShow))
+        mv = await s.execute(delete(Movie))
+        sl = await s.execute(delete(SearchLog))
+        await s.commit()
+        return {
+            "movies": mv.rowcount,
+            "episodes": ep.rowcount,
+            "shows": sh.rowcount,
+            "favorites": fav.rowcount,
+            "search_logs": sl.rowcount,
+        }
+
+
 async def search_movies(query: str, limit: int = 10) -> list[Movie]:
     """Search movies by title (case-insensitive)."""
     async with async_session() as s:

@@ -29,6 +29,7 @@ from handlers.admin import (
     admin_menu,
     ban_command,
     cancel_plan_command,
+    clear_content_command,
     delete_command,
     index_command,
     index_episodes_command,
@@ -88,6 +89,7 @@ def _build_tg_application():
     tg.add_handler(CommandHandler("indexar_episodios", index_episodes_command))
     tg.add_handler(CommandHandler("broadcast", broadcast_command))
     tg.add_handler(CommandHandler("borrar", delete_command))
+    tg.add_handler(CommandHandler("limpiar", clear_content_command))
     tg.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     tg.add_handler(CallbackQueryHandler(callback_handler))
     tg.add_handler(MessageHandler(

@@ -325,6 +325,33 @@ async def cancel_plan_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ── Ban/Unban ─────────────────────────────────────────────────────────────────
 
 @admin_only
+async def clear_content_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /limpiar — delete all content (movies, series, anime, episodes)."""
+    args = context.args
+    if not args or args[0].lower() != "confirmar":
+        await update.message.reply_text(
+            "⚠️ *Esto borrará TODO el contenido*\n"
+            "(películas, series, anime, episodios, favoritos)\n\n"
+            "Los usuarios y suscripciones NO se tocan.\n\n"
+            "Para confirmar: `/limpiar confirmar`",
+            parse_mode="Markdown",
+        )
+        return
+
+    msg = await update.message.reply_text("🗑️ Limpiando contenido...")
+    counts = await db.clear_all_content()
+    await msg.edit_text(
+        f"✅ *Contenido eliminado*\n\n"
+        f"🎬 Películas: `{counts['movies']}`\n"
+        f"📺 Series/Anime: `{counts['shows']}`\n"
+        f"🎞️ Episodios: `{counts['episodes']}`\n"
+        f"⭐ Favoritos: `{counts['favorites']}`\n"
+        f"🔍 Logs de búsqueda: `{counts['search_logs']}`",
+        parse_mode="Markdown",
+    )
+
+
+@admin_only
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:

@@ -41,18 +41,25 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Migration: add published column if it doesn't exist yet
-    # Run in a separate connection so DDL errors don't invalidate the main session
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text(
-                "ALTER TABLE tv_shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT 0"
-            ))
-        # Mark all pre-existing shows as published
-        async with engine.begin() as conn:
-            await conn.execute(text("UPDATE tv_shows SET published = 1"))
-    except Exception:
-        pass  # Column already exists — ignore
+    # Migrations: add columns that may not exist in older databases
+    migrations = [
+        ("ALTER TABLE tv_shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT 0",
+         "UPDATE tv_shows SET published = 1"),
+        ("ALTER TABLE users ADD COLUMN joined_at TIMESTAMP DEFAULT NOW()", None),
+        ("ALTER TABLE users ADD COLUMN last_active TIMESTAMP DEFAULT NOW()", None),
+        ("ALTER TABLE movies ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
+        ("ALTER TABLE tv_shows ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
+        ("ALTER TABLE episodes ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
+    ]
+    for alter_sql, post_sql in migrations:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(alter_sql))
+            if post_sql:
+                async with engine.begin() as conn:
+                    await conn.execute(text(post_sql))
+        except Exception:
+            pass  # Column already exists — ignore
 
 
 # â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

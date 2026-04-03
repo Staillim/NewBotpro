@@ -44,27 +44,33 @@ def admin_only(func):
 
 async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
     """Build and send the main admin panel with live stats."""
-    try:
-        (
-            total_users, active_subs, total_movies, total_series, total_anime,
-            new_users_today, new_users_week, plans_by_type, new_content,
-        ) = await asyncio.gather(
-            db.get_total_users(),
-            db.get_active_subscribers(),
-            db.get_total_movies(),
-            db.get_total_shows(ContentType.SERIES),
-            db.get_total_shows(ContentType.ANIME),
-            db.get_new_users_count(days=1),
-            db.get_new_users_count(days=7),
-            db.get_subscribers_by_plan(),
-            db.get_new_content_count(days=7),
-        )
-        lite_count = plans_by_type.get("lite", 0)
-        pro_count = plans_by_type.get("pro", 0)
-    except Exception:
-        total_users = active_subs = total_movies = total_series = total_anime = "?"
-        new_users_today = new_users_week = lite_count = pro_count = "?"
-        new_content = {"movies": "?", "shows": "?"}
+    results = await asyncio.gather(
+        db.get_total_users(),
+        db.get_active_subscribers(),
+        db.get_total_movies(),
+        db.get_total_shows(ContentType.SERIES),
+        db.get_total_shows(ContentType.ANIME),
+        db.get_new_users_count(days=1),
+        db.get_new_users_count(days=7),
+        db.get_subscribers_by_plan(),
+        db.get_new_content_count(days=7),
+        return_exceptions=True,
+    )
+    # Unpack — replace exceptions with safe defaults
+    def _safe(val, default=0):
+        return default if isinstance(val, BaseException) else val
+
+    total_users = _safe(results[0])
+    active_subs = _safe(results[1])
+    total_movies = _safe(results[2])
+    total_series = _safe(results[3])
+    total_anime = _safe(results[4])
+    new_users_today = _safe(results[5])
+    new_users_week = _safe(results[6])
+    plans_by_type = _safe(results[7], {})
+    new_content = _safe(results[8], {"movies": 0, "shows": 0})
+    lite_count = plans_by_type.get("lite", 0) if isinstance(plans_by_type, dict) else 0
+    pro_count = plans_by_type.get("pro", 0) if isinstance(plans_by_type, dict) else 0
 
     total_content = sum(x for x in [total_movies, total_series, total_anime] if isinstance(x, int))
 
@@ -119,13 +125,20 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    total_users, active_subs, total_movies, total_series, total_anime = await asyncio.gather(
-        db.get_total_users(),
-        db.get_active_subscribers(),
-        db.get_total_movies(),
-        db.get_total_shows(ContentType.SERIES),
-        db.get_total_shows(ContentType.ANIME),
-    )
+    try:
+        results = await asyncio.gather(
+            db.get_total_users(),
+            db.get_active_subscribers(),
+            db.get_total_movies(),
+            db.get_total_shows(ContentType.SERIES),
+            db.get_total_shows(ContentType.ANIME),
+            return_exceptions=True,
+        )
+        def _s(v):
+            return v if not isinstance(v, BaseException) else 0
+        total_users, active_subs, total_movies, total_series, total_anime = [_s(r) for r in results]
+    except Exception:
+        total_users = active_subs = total_movies = total_series = total_anime = 0
 
     text = (
         "📊 *Estadísticas detalladas*\n\n"

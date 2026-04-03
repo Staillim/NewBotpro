@@ -189,57 +189,62 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # ── Admin ─────────────────────────────────────────────────
         elif data.startswith("admin:") and settings.is_admin(query.from_user.id):
-            await query.answer()
 
-            if data == "admin:home":
-                await send_admin_panel(query, context)
-
-            elif data == "admin:stats":
-                await stats_command(update, context)
-
-            elif data == "admin:activate":
-                await activate_plan_start(update, context)
-
-            elif data == "admin:index":
-                await index_command(update, context)
-
-            elif data == "admin:broadcast":
+            if data == "admin:broadcast":
                 await query.answer("Usa /broadcast <mensaje> en el chat privado.", show_alert=True)
 
-            elif data == "admin:users":
-                total = await db.get_total_users()
-                active = await db.get_active_subscribers()
-                back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Panel principal", callback_data="admin:home")]])
-                await query.edit_message_text(
-                    f"👥 *Gestión de Usuarios*\n\n"
-                    f"Total: `{total}`\n"
-                    f"Suscriptores activos: `{active}`\n\n"
-                    f"*Comandos disponibles:*\n"
-                    f"`/activar <id> <lite|pro> [días]`\n"
-                    f"`/cancelar <id>`\n"
-                    f"`/ban <id>`\n"
-                    f"`/unban <id>`",
-                    reply_markup=back,
-                    parse_mode="Markdown",
-                )
-
-            elif data == "admin:content":
-                await show_content_menu(query, context)
-
-            elif data.startswith("admin:content:"):
-                # admin:content:<kind>:<page>
-                _, _, kind, page_str = data.split(":", 3)
-                await show_content_list(query, context, kind, int(page_str))
-
-            elif data.startswith("admin:del:"):
-                await handle_delete_callback(update, context, parts[2:])
-
-            elif data.startswith("admin:select_series:"):
-                idx = int(parts[2])
-                await handle_series_selection(update, context, idx)
-
             else:
-                logger.warning("Unhandled admin callback: %s", data)
+                await query.answer()
+
+                if data == "admin:home":
+                    await send_admin_panel(query, context)
+
+                elif data == "admin:stats":
+                    await stats_command(update, context)
+
+                elif data == "admin:activate":
+                    await activate_plan_start(update, context)
+
+                elif data == "admin:index":
+                    await index_command(update, context)
+
+                elif data == "admin:users":
+                    try:
+                        total = await db.get_total_users()
+                        active = await db.get_active_subscribers()
+                    except Exception:
+                        total = active = "?"
+                    back = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Panel principal", callback_data="admin:home")]])
+                    await query.edit_message_text(
+                        f"👥 *Gestión de Usuarios*\n\n"
+                        f"Total: `{total}`\n"
+                        f"Suscriptores activos: `{active}`\n\n"
+                        f"*Comandos disponibles:*\n"
+                        f"`/activar <id> <lite|pro> [días]`\n"
+                        f"`/cancelar <id>`\n"
+                        f"`/ban <id>`\n"
+                        f"`/unban <id>`",
+                        reply_markup=back,
+                        parse_mode="Markdown",
+                    )
+
+                elif data == "admin:content":
+                    await show_content_menu(query, context)
+
+                elif data.startswith("admin:content:"):
+                    # admin:content:<kind>:<page>
+                    _, _, kind, page_str = data.split(":", 3)
+                    await show_content_list(query, context, kind, int(page_str))
+
+                elif data.startswith("admin:del:"):
+                    await handle_delete_callback(update, context, parts[2:])
+
+                elif data.startswith("admin:select_series:"):
+                    idx = int(parts[2])
+                    await handle_series_selection(update, context, idx)
+
+                else:
+                    logger.warning("Unhandled admin callback: %s", data)
 
         elif data.startswith("admin:"):
             await query.answer("🚫 Sin permisos.", show_alert=True)

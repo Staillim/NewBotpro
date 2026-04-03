@@ -273,16 +273,25 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
         await context.bot.send_video(
             chat_id=query.message.chat_id,
             video=movie.file_id,
-            caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_CineStelar Premium_",
+            caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_TodoCineHD_",
             parse_mode="Markdown",
         )
         await db.log_activity(query.from_user.id, "watch_movie", movie.id, "movie")
-    except Exception as e:
-        logger.error("Failed to send movie %s: %s", movie_id, e)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="❌ Error al enviar la película. Intenta de nuevo más tarde.",
-        )
+    except Exception:
+        try:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=movie.file_id,
+                caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_TodoCineHD_",
+                parse_mode="Markdown",
+            )
+            await db.log_activity(query.from_user.id, "watch_movie", movie.id, "movie")
+        except Exception as e2:
+            logger.error("Failed to send movie %s: %s", movie_id, e2)
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="❌ Error al enviar la película. Intenta de nuevo más tarde.",
+            )
 
 
 async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, episode_id: int):
@@ -305,18 +314,32 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
             caption=(
                 f"📺 *{show_name}*\n"
                 f"T{ep.season_number}E{ep.episode_number}: {ep_title}\n\n"
-                f"_CineStelar Premium_"
+                f"_TodoCineHD_"
             ),
             parse_mode="Markdown",
         )
         content_type = "anime" if (show and show.content_type == ContentType.ANIME) else "series"
         await db.log_activity(query.from_user.id, "watch_episode", ep.id, content_type)
-    except Exception as e:
-        logger.error("Failed to send episode %s: %s", episode_id, e)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="❌ Error al enviar el episodio. Intenta de nuevo más tarde.",
-        )
+    except Exception:
+        # Fallback: try sending as document (file_id might be a document)
+        try:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=ep.file_id,
+                caption=(
+                    f"📺 *{show_name}*\n"
+                    f"T{ep.season_number}E{ep.episode_number}: {ep_title}\n\n"
+                    f"_TodoCineHD_"
+                ),
+                parse_mode="Markdown",
+            )
+            await db.log_activity(query.from_user.id, "watch_episode", ep.id, "series")
+        except Exception as e2:
+            logger.error("Failed to send episode %s: %s", episode_id, e2)
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="❌ Error al enviar el episodio. Intenta de nuevo más tarde.",
+            )
 
 
 async def download_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_id: int):

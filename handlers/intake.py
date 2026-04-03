@@ -187,8 +187,8 @@ async def _add_episode(file_id: str, post: Message, context) -> None:
     show = session["show"]
     caption = (post.caption or "").strip()
 
-    # Try to parse S/E from caption; fall back to auto-increment
-    ep_info = extract_episode_info(caption) or {
+    # Always auto-increment during intake sessions
+    ep_info = {
         "season": session["season"],
         "episode": session["next_episode"],
     }

@@ -83,7 +83,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     referred_by = None  # prevent self-referral
             except ValueError:
                 pass
-        elif arg.startswith("watch_movie_") or arg.startswith("watch_show_"):
+        elif arg.startswith(("watch_movie_", "watch_show_", "watch_series_", "watch_anime_")):
             catalog_deeplink = arg
 
     # Register/update user
@@ -126,8 +126,7 @@ async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Catalog deeplink handler ─────────────────────────────────────────────────
 
 async def _handle_catalog_deeplink(update: Update, arg: str):
-    """Handle watch_movie_ID and watch_show_ID deeplinks from the WebApp."""
-    protect = False
+    """Handle watch_movie_ID, watch_show_ID, watch_series_ID, watch_anime_ID deeplinks."""
 
     if arg.startswith("watch_movie_"):
         try:
@@ -145,14 +144,23 @@ async def _handle_catalog_deeplink(update: Update, arg: str):
             caption += f"\n⭐ {movie.vote_average:.1f}"
         if movie.overview:
             caption += f"\n\n{movie.overview[:300]}…"
-        await update.message.reply_video(
-            movie.file_id,
-            caption=caption,
-            parse_mode="Markdown",
-            protect_content=protect,
-        )
+        try:
+            await update.message.reply_video(
+                movie.file_id,
+                caption=caption,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            try:
+                await update.message.reply_document(
+                    movie.file_id,
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                await update.message.reply_text("❌ Error al enviar la película.")
 
-    elif arg.startswith("watch_show_"):
+    elif arg.startswith(("watch_show_", "watch_series_", "watch_anime_")):
         try:
             show_id = int(arg.split("_")[-1])
         except ValueError:
@@ -168,11 +176,23 @@ async def _handle_catalog_deeplink(update: Update, arg: str):
                 callback_data=f"show:{show_id}",
             )
         ]])
-        caption = f"{'🎌' if show.content_type and 'anime' in show.content_type.value else '📺'} *{show.name}*"
+        emoji = "🎌" if show.content_type and "anime" in show.content_type.value else "📺"
+        caption = f"{emoji} *{show.name}*"
         if show.year:
             caption += f"  ({show.year})"
         if show.vote_average:
             caption += f"\n⭐ {show.vote_average:.1f}"
+        if show.poster_url:
+            try:
+                await update.message.reply_photo(
+                    show.poster_url,
+                    caption=caption,
+                    reply_markup=kb,
+                    parse_mode="Markdown",
+                )
+                return
+            except Exception:
+                pass
         await update.message.reply_text(
             caption, reply_markup=kb, parse_mode="Markdown"
         )

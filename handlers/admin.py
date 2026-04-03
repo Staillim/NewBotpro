@@ -45,15 +45,20 @@ def admin_only(func):
 async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
     """Build and send the main admin panel with live stats."""
     try:
-        total_users = await db.get_total_users()
-        active_subs = await db.get_active_subscribers()
-        total_movies = await db.get_total_movies()
-        total_series = await db.get_total_shows(ContentType.SERIES)
-        total_anime = await db.get_total_shows(ContentType.ANIME)
-        new_users_today = await db.get_new_users_count(days=1)
-        new_users_week = await db.get_new_users_count(days=7)
-        plans_by_type = await db.get_subscribers_by_plan()
-        new_content = await db.get_new_content_count(days=7)
+        (
+            total_users, active_subs, total_movies, total_series, total_anime,
+            new_users_today, new_users_week, plans_by_type, new_content,
+        ) = await asyncio.gather(
+            db.get_total_users(),
+            db.get_active_subscribers(),
+            db.get_total_movies(),
+            db.get_total_shows(ContentType.SERIES),
+            db.get_total_shows(ContentType.ANIME),
+            db.get_new_users_count(days=1),
+            db.get_new_users_count(days=7),
+            db.get_subscribers_by_plan(),
+            db.get_new_content_count(days=7),
+        )
         lite_count = plans_by_type.get("lite", 0)
         pro_count = plans_by_type.get("pro", 0)
     except Exception:
@@ -114,11 +119,13 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    total_users = await db.get_total_users()
-    active_subs = await db.get_active_subscribers()
-    total_movies = await db.get_total_movies()
-    total_series = await db.get_total_shows(ContentType.SERIES)
-    total_anime = await db.get_total_shows(ContentType.ANIME)
+    total_users, active_subs, total_movies, total_series, total_anime = await asyncio.gather(
+        db.get_total_users(),
+        db.get_active_subscribers(),
+        db.get_total_movies(),
+        db.get_total_shows(ContentType.SERIES),
+        db.get_total_shows(ContentType.ANIME),
+    )
 
     text = (
         "📊 *Estadísticas detalladas*\n\n"
@@ -141,9 +148,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_content_menu(query, context: ContextTypes.DEFAULT_TYPE):
     """Show content management menu."""
-    total_movies = await db.get_total_movies()
-    total_series = await db.get_total_shows(ContentType.SERIES)
-    total_anime = await db.get_total_shows(ContentType.ANIME)
+    total_movies, total_series, total_anime = await asyncio.gather(
+        db.get_total_movies(),
+        db.get_total_shows(ContentType.SERIES),
+        db.get_total_shows(ContentType.ANIME),
+    )
 
     text = (
         "🎬 *Administrar Contenido*\n\n"

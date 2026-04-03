@@ -40,6 +40,19 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migration: add published column if it doesn't exist yet
+        try:
+            await conn.execute(
+                __import__("sqlalchemy").text(
+                    "ALTER TABLE tv_shows ADD COLUMN published BOOLEAN DEFAULT 0"
+                )
+            )
+            # Mark all existing shows as published (they were already visible)
+            await conn.execute(
+                __import__("sqlalchemy").text("UPDATE tv_shows SET published = 1")
+            )
+        except Exception:
+            pass  # Column already exists — ignore
 
 
 # â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -253,12 +266,22 @@ async def add_tv_show(**kwargs) -> TvShow:
         return show
 
 
-async def search_shows(query: str, content_type: ContentType = None, limit: int = 10) -> list[TvShow]:
+async def publish_show(show_id: int) -> None:
+    async with async_session() as s:
+        await s.execute(
+            update(TvShow).where(TvShow.id == show_id).values(published=True)
+        )
+        await s.commit()
+
+
+async def search_shows(query: str, content_type: ContentType = None, limit: int = 10, published_only: bool = True) -> list[TvShow]:
     async with async_session() as s:
         q = query.lower()
         stmt = select(TvShow).where(func.lower(TvShow.name).contains(q))
         if content_type:
             stmt = stmt.where(TvShow.content_type == content_type)
+        if published_only:
+            stmt = stmt.where(TvShow.published == True)  # noqa: E712
         stmt = stmt.order_by(TvShow.vote_average.desc().nullslast()).limit(limit)
         result = await s.execute(stmt)
         return list(result.scalars().all())
@@ -273,12 +296,14 @@ async def get_show(show_id: int) -> Optional[TvShow]:
 async def get_shows_page(content_type: ContentType, page: int, page_size: int = 8) -> tuple[list[TvShow], int]:
     async with async_session() as s:
         total_r = await s.execute(
-            select(func.count(TvShow.id)).where(TvShow.content_type == content_type)
+            select(func.count(TvShow.id)).where(
+                TvShow.content_type == content_type, TvShow.published == True  # noqa: E712
+            )
         )
         total = total_r.scalar() or 0
         result = await s.execute(
             select(TvShow)
-            .where(TvShow.content_type == content_type)
+            .where(TvShow.content_type == content_type, TvShow.published == True)  # noqa: E712
             .order_by(TvShow.indexed_at.desc())
             .offset(page * page_size)
             .limit(page_size)
@@ -289,7 +314,9 @@ async def get_shows_page(content_type: ContentType, page: int, page_size: int = 
 async def get_total_shows(content_type: ContentType) -> int:
     async with async_session() as s:
         r = await s.execute(
-            select(func.count(TvShow.id)).where(TvShow.content_type == content_type)
+            select(func.count(TvShow.id)).where(
+                TvShow.content_type == content_type, TvShow.published == True  # noqa: E712
+            )
         )
         return r.scalar() or 0
 

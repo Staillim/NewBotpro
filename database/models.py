@@ -147,6 +147,7 @@ class TvShow(Base):
     number_of_seasons = Column(Integer, nullable=True)
     status = Column(String(50), nullable=True)
     detected_pattern = Column(String(100), nullable=True)
+    published = Column(Boolean, default=False)
 
     indexed_at = Column(DateTime, default=lambda: datetime.utcnow())
 

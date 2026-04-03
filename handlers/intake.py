@@ -147,8 +147,9 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{emoji} *{show.name}*\n"
             f"📦 {count} episodio(s) indexado(s)",
         )
-        # Notify groups only when a new show was created (count > 0)
+        # Publish and notify groups only when episodes were added
         if count > 0:
+            await db.publish_show(show.id)
             content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
             await _notify_groups(
                 context,
@@ -189,6 +190,7 @@ async def _auto_close_session(context) -> None:
         f"{emoji} *{show.name}* — {count} episodio(s) indexado(s).",
     )
     if count > 0:
+        await db.publish_show(show.id)
         content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
         await _notify_groups(
             context,
@@ -213,8 +215,8 @@ async def _start_show_session(
     emoji = "🎌" if content_type == ContentType.ANIME else "📺"
     await _notify(context, f"🔍 Buscando *{name}* en base de datos y TMDB…")
 
-    # Check DB first
-    existing = await db.search_shows(name, content_type, limit=1)
+    # Check DB first (include unpublished drafts so we can continue uploading)
+    existing = await db.search_shows(name, content_type, limit=1, published_only=False)
     if existing:
         show = existing[0]
         await _notify(

@@ -201,17 +201,22 @@ async def _add_episode(file_id: str, post: Message, context) -> None:
     emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
 
     channel_msg_id = None
+    dist_caption = caption if caption else f"{emoji} {show.name} — T{ep_info['season']:02d}E{ep_info['episode']:02d}"
     try:
         sent = await context.bot.send_video(
             chat_id=dest_channel,
             video=file_id,
-            caption=f"{emoji} {show.name} — T{ep_info['season']:02d}E{ep_info['episode']:02d}",
+            caption=dist_caption,
         )
         channel_msg_id = sent.message_id
     except Exception as exc:
         logger.error("Failed to distribute episode: %s", exc)
 
-    # Fetch episode metadata from TMDB (best-effort)
+    # Use the original caption as episode title so users see exactly
+    # what was sent, regardless of file naming format.
+    ep_title = caption if caption else None
+
+    # Fetch extra metadata from TMDB (best-effort, title NOT overridden)
     ep_meta: dict = {}
     if show.tmdb_id:
         try:
@@ -228,7 +233,7 @@ async def _add_episode(file_id: str, post: Message, context) -> None:
         channel_message_id=channel_msg_id,
         season_number=ep_info["season"],
         episode_number=ep_info["episode"],
-        title=ep_meta.get("title"),
+        title=ep_title,
         overview=ep_meta.get("overview"),
         air_date=ep_meta.get("air_date"),
         runtime=ep_meta.get("runtime"),

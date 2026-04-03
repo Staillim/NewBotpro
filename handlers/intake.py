@@ -8,9 +8,11 @@ Flow:
   - "final"                          → closes session, reports count
 """
 
+import asyncio
 import logging
 
 from telegram import Message, Update
+from telegram.error import RetryAfter, TimedOut
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -23,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 # ── Session state (one active show at a time per process) ─────────────────────
 _active_session: dict | None = None
+
+# Semaphore: process max 1 movie at a time to avoid Telegram/TMDB flood
+_index_lock = asyncio.Semaphore(1)
+
+# Delay between consecutive sends to the distribution channel (seconds)
+_SEND_DELAY = 2.0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -211,15 +219,26 @@ async def _add_episode(file_id: str, post: Message, context) -> None:
 
     channel_msg_id = None
     dist_caption = caption if caption else f"{emoji} {show.name} — T{ep_info['season']:02d}E{ep_info['episode']:02d}"
-    try:
-        sent = await context.bot.send_video(
-            chat_id=dest_channel,
-            video=file_id,
-            caption=dist_caption,
-        )
-        channel_msg_id = sent.message_id
-    except Exception as exc:
-        logger.error("Failed to distribute episode: %s", exc)
+
+    for attempt in range(3):
+        try:
+            sent = await context.bot.send_video(
+                chat_id=dest_channel,
+                video=file_id,
+                caption=dist_caption,
+            )
+            channel_msg_id = sent.message_id
+            break
+        except RetryAfter as exc:
+            wait = exc.retry_after + 1
+            logger.warning("Flood control (episode): retrying in %ss", wait)
+            await asyncio.sleep(wait)
+        except TimedOut:
+            logger.warning("TimedOut sending episode to channel (attempt %d)", attempt + 1)
+            await asyncio.sleep(5)
+        except Exception as exc:
+            logger.error("Failed to distribute episode: %s", exc)
+            break
 
     # Use the original caption as episode title so users see exactly
     # what was sent, regardless of file naming format.
@@ -262,12 +281,20 @@ async def _add_episode(file_id: str, post: Message, context) -> None:
 # ── Movie auto-index ──────────────────────────────────────────────────────────
 
 async def _index_movie(file_id: str, post: Message, context) -> None:
-    """Auto-index a video as a movie."""
+    """Auto-index a video as a movie — serialized to avoid flood limits."""
+    async with _index_lock:
+        await _do_index_movie(file_id, post, context)
+        # Pause between consecutive movies to respect Telegram's rate limit
+        await asyncio.sleep(_SEND_DELAY)
+
+
+async def _do_index_movie(file_id: str, post: Message, context) -> None:
+    """Internal: perform TMDB lookup, channel send, and DB insert for one movie."""
     caption = (post.caption or "").strip()
     clean = clean_title(caption)
     year = extract_year(caption)
 
-    # Search TMDB
+    # Search TMDB (small delay avoids hammering the API back-to-back)
     tmdb_data: dict = {}
     if clean:
         try:
@@ -282,15 +309,27 @@ async def _index_movie(file_id: str, post: Message, context) -> None:
 
     channel_msg_id = None
     caption_text = f"🎬 {title} ({year_val})" if year_val else f"🎬 {title}"
-    try:
-        sent = await context.bot.send_video(
-            chat_id=settings.MOVIES_CHANNEL_ID,
-            video=file_id,
-            caption=caption_text,
-        )
-        channel_msg_id = sent.message_id
-    except Exception as exc:
-        logger.error("Failed to distribute movie: %s", exc)
+
+    # Send to distribution channel with retry on flood control
+    for attempt in range(3):
+        try:
+            sent = await context.bot.send_video(
+                chat_id=settings.MOVIES_CHANNEL_ID,
+                video=file_id,
+                caption=caption_text,
+            )
+            channel_msg_id = sent.message_id
+            break
+        except RetryAfter as exc:
+            wait = exc.retry_after + 1
+            logger.warning("Flood control: retrying in %ss (attempt %d)", wait, attempt + 1)
+            await asyncio.sleep(wait)
+        except TimedOut:
+            logger.warning("TimedOut sending movie to channel (attempt %d)", attempt + 1)
+            await asyncio.sleep(5)
+        except Exception as exc:
+            logger.error("Failed to distribute movie '%s': %s", title, exc)
+            break
 
     await db.add_movie(
         file_id=file_id,
@@ -309,5 +348,5 @@ async def _index_movie(file_id: str, post: Message, context) -> None:
         raw_caption=caption,
     )
 
-    await _notify(context, f"✅ Película *{title}* indexada correctamente.")
+    await _notify(context, f"✅ *{title}* {'(' + str(year_val) + ')' if year_val else ''} indexada.")
     logger.info("Movie indexed: %s (msg_id=%s)", title, post.message_id)

@@ -258,12 +258,30 @@ async def delete_movie(movie_id: int) -> bool:
 # â”€â”€ TV Shows / Anime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_tv_show(**kwargs) -> TvShow:
+    from sqlalchemy.exc import IntegrityError
     async with async_session() as s:
         show = TvShow(**kwargs)
         s.add(show)
-        await s.commit()
-        await s.refresh(show)
-        return show
+        try:
+            await s.commit()
+            await s.refresh(show)
+            return show
+        except IntegrityError:
+            await s.rollback()
+            # tmdb_id unique conflict — fetch the existing row
+            tmdb_id = kwargs.get("tmdb_id")
+            if tmdb_id:
+                result = await s.execute(select(TvShow).where(TvShow.tmdb_id == tmdb_id))
+                existing = result.scalar_one_or_none()
+                if existing:
+                    return existing
+            # fallback: insert without tmdb_id
+            kwargs["tmdb_id"] = None
+            show2 = TvShow(**kwargs)
+            s.add(show2)
+            await s.commit()
+            await s.refresh(show2)
+            return show2
 
 
 async def publish_show(show_id: int) -> None:

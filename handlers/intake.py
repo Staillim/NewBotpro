@@ -214,8 +214,17 @@ async def _start_show_session(
 
     emoji = "🎌" if content_type == ContentType.ANIME else "📺"
     await _notify(context, f"🔍 Buscando *{name}* en base de datos y TMDB…")
+    try:
+        await _do_start_show_session(name, content_type, emoji, context)
+    except Exception as exc:
+        logger.error("_start_show_session error: %s", exc, exc_info=True)
+        await _notify(context, f"❌ Error al crear la sesión: {exc}")
 
-    # Check DB first (include unpublished drafts so we can continue uploading)
+
+async def _do_start_show_session(
+    name: str, content_type: ContentType, emoji: str, context
+) -> None:
+    global _active_session
     existing = await db.search_shows(name, content_type, limit=1, published_only=False)
     if existing:
         show = existing[0]

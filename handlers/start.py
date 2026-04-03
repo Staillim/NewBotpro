@@ -123,32 +123,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 Tu cuenta ha sido suspendida.")
         return
 
-    # Check channel membership
-    if settings.VERIFICATION_CHANNEL_ID:
-        try:
-            member = await context.bot.get_chat_member(
-                settings.VERIFICATION_CHANNEL_ID, user.id
-            )
-            if member.status in ("left", "kicked"):
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(
-                        "📢 Unirse al Canal",
-                        url=f"https://t.me/{settings.VERIFICATION_CHANNEL_USERNAME.lstrip('@')}"
-                    )],
-                    [InlineKeyboardButton("✅ Ya me uní", callback_data="verify:check")],
-                ])
-                await update.message.reply_text(
-                    VERIFY_TEXT.format(channel=settings.VERIFICATION_CHANNEL_USERNAME),
-                    reply_markup=kb,
-                    parse_mode="Markdown",
-                )
-                return
-            else:
-                if not db_user.verified:
-                    await db.set_user_verified(user.id)
-        except Exception as e:
-            logger.warning("Verification check failed: %s", e)
-
     # Check subscription
     is_active, plan = await db.check_subscription(user.id)
 

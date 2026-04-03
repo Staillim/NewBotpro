@@ -2,14 +2,26 @@
 
 import asyncio
 import logging
+from typing import Any
 
-from telegram import Update
+from telegram import Update, Message, Bot
 from telegram.ext import ContextTypes
 
 from config.settings import settings
 from database import db_manager as db
 
 logger = logging.getLogger(__name__)
+
+# Keeps references to background tasks so GC doesn't cancel them
+_active_tasks: set[asyncio.Task] = set()
+
+
+def _bg_task(coro: Any) -> asyncio.Task:
+    """Schedule a coroutine as a background task, keeping a strong reference."""
+    task = asyncio.create_task(coro)
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+    return task
 
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -52,15 +64,26 @@ async def _do_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     total = len(user_ids)
 
     status_msg = await update.message.reply_text(
-        f"📤 Enviando broadcast a {total} usuarios..."
+        f"📤 Broadcast iniciado en background para {total} usuarios...\n"
+        f"Puedes seguir usando el bot normalmente."
     )
 
+    # Run the actual send loop in background — handler returns immediately so
+    # Telegram receives 200 quickly and won't re-send this webhook update.
+    _bg_task(_run_broadcast_loop(status_msg, context.bot, user_ids, text))
+
+
+async def _run_broadcast_loop(
+    status_msg: Message, bot: Bot, user_ids: list, text: str
+) -> None:
+    """Send text to all users. Runs as a background task."""
+    total = len(user_ids)
     sent = 0
     errors = 0
 
     for uid in user_ids:
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=uid,
                 text=text,
                 parse_mode="Markdown",
@@ -80,10 +103,13 @@ async def _do_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
         await asyncio.sleep(0.05)
 
-    await status_msg.edit_text(
-        f"✅ *Broadcast completado*\n\n"
-        f"📊 Total: {total}\n"
-        f"✅ Enviados: {sent}\n"
-        f"❌ Errores: {errors}",
-        parse_mode="Markdown",
-    )
+    try:
+        await status_msg.edit_text(
+            f"✅ *Broadcast completado*\n\n"
+            f"📊 Total: {total}\n"
+            f"✅ Enviados: {sent}\n"
+            f"❌ Errores: {errors}",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass

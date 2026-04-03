@@ -2,8 +2,9 @@
 
 import asyncio
 import logging
+from typing import Any
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message, Bot
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -14,6 +15,17 @@ from utils.title_cleaner import clean_title, extract_year, extract_episode_info
 from utils.content_classifier import classify
 
 logger = logging.getLogger(__name__)
+
+# Keeps references to background tasks so GC doesn't cancel them
+_active_tasks: set[asyncio.Task] = set()
+
+
+def _bg_task(coro: Any) -> asyncio.Task:
+    """Schedule a coroutine as a background task, keeping a strong reference."""
+    task = asyncio.create_task(coro)
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+    return task
 
 
 def admin_only(func):
@@ -216,29 +228,39 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
 
-    status_msg = await msg.reply_text("📥 Iniciando indexación del canal de intake...")
-
-    last_indexed = await db.get_config("last_indexed_message", "0")
-    last_id = int(last_indexed)
-
     intake_channel = settings.INTAKE_CHANNEL_ID
     if not intake_channel:
-        await status_msg.edit_text("❌ INTAKE_CHANNEL_ID no configurado.")
+        await msg.reply_text("❌ INTAKE_CHANNEL_ID no configurado.")
         return
 
+    last_id = int(await db.get_config("last_indexed_message", "0"))
+
+    status_msg = await msg.reply_text(
+        "📥 Indexación iniciada en background...\n"
+        "Puedes seguir usando el bot con normalidad."
+    )
+
+    # Run the heavy loop in background — handler returns here, webhook sends 200 fast.
+    _bg_task(_run_index_loop(context.bot, update.effective_user.id, status_msg, last_id))
+
+
+async def _run_index_loop(
+    bot: Bot, admin_user_id: int, status_msg: Message, last_id: int
+) -> None:
+    """Scan intake channel and distribute content. Runs as a background task."""
+    intake_channel = settings.INTAKE_CHANNEL_ID
     indexed_movies = 0
     indexed_episodes = 0
     errors = 0
     current_msg_id = last_id + 1
 
-    # We'll scan forward from last indexed message
     consecutive_not_found = 0
     max_consecutive = 50  # stop after 50 consecutive empty IDs
 
     while consecutive_not_found < max_consecutive:
         try:
-            fwd = await context.bot.forward_message(
-                chat_id=update.effective_user.id,
+            fwd = await bot.forward_message(
+                chat_id=admin_user_id,
                 from_chat_id=intake_channel,
                 message_id=current_msg_id,
                 disable_notification=True,
@@ -265,7 +287,6 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption = fwd.caption or fwd.document.file_name or ""
 
             if not file_id:
-                # Delete the forwarded non-video message
                 try:
                     await fwd.delete()
                 except Exception:
@@ -273,7 +294,6 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 current_msg_id += 1
                 continue
 
-            # Delete forwarded message from admin chat
             try:
                 await fwd.delete()
             except Exception:
@@ -285,17 +305,15 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             year = extract_year(caption)
 
             if content_type == ContentType.MOVIE:
-                # Search TMDb for metadata
                 tmdb_data = {}
                 if clean:
                     results = await tmdb_api.search_movie(clean, year)
                     if results:
                         tmdb_data = results[0]
 
-                # Distribute to movies channel
                 channel_msg_id = None
                 try:
-                    sent = await context.bot.send_video(
+                    sent = await bot.send_video(
                         chat_id=settings.MOVIES_CHANNEL_ID,
                         video=file_id,
                         caption=f"🎬 {tmdb_data.get('title', clean)} ({tmdb_data.get('year', year or '')})",
@@ -323,25 +341,21 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 indexed_movies += 1
 
             else:
-                # Series or Anime – need show context
                 ep_info = extract_episode_info(caption)
                 if not ep_info:
                     ep_info = {"season": 1, "episode": 1}
 
-                # Try to find or create the show
                 show_title = clean
                 existing_shows = await db.search_shows(show_title, content_type, limit=1)
 
                 if existing_shows:
                     show = existing_shows[0]
                 else:
-                    # Search TMDb for series info
                     tmdb_data = {}
                     if show_title:
                         tv_results = await tmdb_api.search_tv(show_title)
                         if tv_results:
                             tmdb_data = tv_results[0]
-                            # Recheck anime classification with TMDb
                             if tmdb_data.get("tmdb_id"):
                                 is_anime = await tmdb_api.is_anime(tmdb_data["tmdb_id"])
                                 if is_anime:
@@ -362,7 +376,6 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         status=tmdb_data.get("status"),
                     )
 
-                # Distribute to appropriate channel
                 dest_channel = (
                     settings.ANIME_CHANNEL_ID
                     if content_type == ContentType.ANIME
@@ -371,7 +384,7 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 channel_msg_id = None
                 emoji = "🎌" if content_type == ContentType.ANIME else "📺"
                 try:
-                    sent = await context.bot.send_video(
+                    sent = await bot.send_video(
                         chat_id=dest_channel,
                         video=file_id,
                         caption=f"{emoji} {show.name} — T{ep_info['season']}E{ep_info['episode']}",
@@ -380,7 +393,6 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     logger.error("Failed to distribute episode: %s", e)
 
-                # Get episode metadata from TMDb
                 ep_meta = {}
                 if show.tmdb_id:
                     ep_meta = await tmdb_api.get_episode_details(
@@ -409,33 +421,33 @@ async def index_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         current_msg_id += 1
 
-        # Update progress every 10 items
         total = indexed_movies + indexed_episodes
         if total > 0 and total % 10 == 0:
             try:
                 await status_msg.edit_text(
                     f"📥 Indexando... {total} procesados\n"
                     f"🎬 Películas: {indexed_movies}\n"
-                    f"📺📌 Series/Anime: {indexed_episodes}\n"
+                    f"📺🎌 Series/Anime: {indexed_episodes}\n"
                     f"❌ Errores: {errors}"
                 )
             except Exception:
                 pass
 
-        # Rate limiting
         await asyncio.sleep(1.5)
 
-    # Save last indexed
     await db.set_config("last_indexed_message", str(current_msg_id - consecutive_not_found - 1))
 
-    await status_msg.edit_text(
-        f"✅ *Indexación completada*\n\n"
-        f"🎬 Películas nuevas: {indexed_movies}\n"
-        f"📺🎌 Episodios nuevos: {indexed_episodes}\n"
-        f"❌ Errores: {errors}\n"
-        f"📍 Último mensaje: {current_msg_id - consecutive_not_found - 1}",
-        parse_mode="Markdown",
-    )
+    try:
+        await status_msg.edit_text(
+            f"✅ *Indexación completada*\n\n"
+            f"🎬 Películas nuevas: {indexed_movies}\n"
+            f"📺🎌 Episodios nuevos: {indexed_episodes}\n"
+            f"❌ Errores: {errors}\n"
+            f"📍 Último mensaje: {current_msg_id - consecutive_not_found - 1}",
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
 
 
 # ── Manual index single message ──────────────────────────────────────────────

@@ -50,8 +50,6 @@ logger = logging.getLogger(__name__)
 
 async def post_init(application):
     """Run after bot initialization."""
-    await init_db()
-    logger.info("Database initialized.")
     me = await application.bot.get_me()
     logger.info("Bot started: @%s (%s)", me.username, me.id)
 
@@ -127,6 +125,11 @@ async def main():
     if not settings.BOT_TOKEN:
         logger.error("BOT_TOKEN not set in .env")
         sys.exit(1)
+
+    # Initialize DB FIRST – creates all tables before bot or API handle any request
+    logger.info("Initializing database…")
+    await init_db()
+    logger.info("Database initialized.")
 
     stop_event = asyncio.Event()
     await asyncio.gather(

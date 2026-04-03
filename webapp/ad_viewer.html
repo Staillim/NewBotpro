@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TodoCineHD — Ver Anuncio</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Ad network tag — paste your script tag here -->
+  <script>(function(d,z,s){s.src='https://'+d+'/401/'+z;try{(document.body||document.documentElement).appendChild(s)}catch(e){}})('vaugroar.com',10827850,document.createElement('script'))</script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -127,7 +129,7 @@
   </div>
 
   <div id="countdown-bar"><div id="countdown-fill"></div></div>
-  <div id="countdown-text">Espera <span id="cd-num">5</span>s...</div>
+  <div id="countdown-text">Video disponible en <span id="cd-num">10</span>s</div>
   <div id="status"></div>
 
   <script>
@@ -166,29 +168,22 @@
     }
 
     // ── Ad countdown ──────────────────────────────────────────────────
-    const AD_SECONDS = 5;
+    const AD_SECONDS = 10;   // 5s delay + ad display time
     let adDone = false;
 
-    fetch("/api/ad-config")
-      .then(r => r.json())
-      .then(cfg => {
-        if (cfg.zone_id) {
-          loadLibtlAd(cfg.zone_id);
-        } else {
-          startCountdown();
-        }
-      })
-      .catch(() => startCountdown());
+    // Launch In-App Interstitial — shows automatically after 5s
+    show_10827850({
+      type: 'inApp',
+      inAppSettings: {
+        frequency: 2,
+        capping: 0.1,
+        interval: 30,
+        timeout: 5,
+        everyPage: false
+      }
+    });
 
-    function loadLibtlAd(zoneId) {
-      const container = document.getElementById("ad-container");
-      container.innerHTML = "";
-      const script = document.createElement("script");
-      script.src = `//cdn.libtl.com/show_${zoneId}.js`;
-      script.onerror = () => startCountdown();
-      document.head.appendChild(script);
-      startCountdown();
-    }
+    startCountdown();
 
     function startCountdown() {
       let remaining = AD_SECONDS;

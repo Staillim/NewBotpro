@@ -156,6 +156,16 @@
       return d;
     }
 
+    // ── Preload ad as soon as SDK is ready (reduces delay on click) ───
+    function tryPreload(retries) {
+      if (typeof show_10827850 === 'function') {
+        show_10827850({ type: 'preload', ymid: userId }).then(() => {}).catch(() => {});
+      } else if (retries > 0) {
+        setTimeout(() => tryPreload(retries - 1), 200);
+      }
+    }
+    tryPreload(20);
+
     // ── Estado 1 → 2: usuario toca "Ver Anuncio" ─────────────────────
     function startAd() {
       const btnAd = document.getElementById("btn-ad");
@@ -164,23 +174,22 @@
 
       function tryRewarded(retries) {
         if (typeof show_10827850 === 'function') {
-          // Rewarded interstitial — promesa resuelve cuando el usuario termina
-          show_10827850()
+          show_10827850({ ymid: userId })
             .then(() => {
               btnAd.style.display = "none";
               document.getElementById("countdown-wrap").style.display = "none";
               showWatchButton();
             })
             .catch(() => {
-              // Ad falló o fue cerrado — igual dejamos ver el contenido
+              // Anuncio falló o fue cerrado — fallback countdown
               btnAd.style.display = "none";
-              document.getElementById("countdown-wrap").style.display = "none";
-              showWatchButton();
+              document.getElementById("countdown-wrap").style.display = "block";
+              startFallbackCountdown();
             });
         } else if (retries > 0) {
           setTimeout(() => tryRewarded(retries - 1), 200);
         } else {
-          // Script no cargó — fallback countdown de 5s
+          // SDK no cargó — fallback countdown
           btnAd.style.display = "none";
           document.getElementById("countdown-wrap").style.display = "block";
           startFallbackCountdown();

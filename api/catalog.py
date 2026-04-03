@@ -214,7 +214,11 @@ async def telegram_webhook(token: str, request: Request):
     try:
         data = await request.json()
         update = Update.de_json(data, _tg_app.bot)
-        _fire(_safe_process(update))
+        # PreCheckoutQuery must be answered within 10s — process synchronously
+        if update.pre_checkout_query:
+            await _safe_process(update)
+        else:
+            _fire(_safe_process(update))
     except Exception:
         logger.exception("Webhook parse error")
     return Response(content="ok")

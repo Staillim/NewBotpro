@@ -24,7 +24,15 @@ from database.models import (
 )
 from config.settings import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_size=10,          # máximo 10 conexiones abiertas
+    max_overflow=20,       # hasta 20 extras en picos (total 30 max)
+    pool_timeout=30,       # espera 30s antes de dar error
+    pool_recycle=1800,     # recicla conexiones cada 30 min
+    pool_pre_ping=True,    # verifica conexión antes de usarla
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

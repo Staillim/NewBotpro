@@ -1,10 +1,13 @@
-﻿"""Database manager â€“ async CRUD operations."""
+﻿"""Database manager — async CRUD operations."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select, update, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+
+logger = logging.getLogger(__name__)
 
 from database.models import (
     Base,
@@ -42,24 +45,37 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
     # Migrations: add columns that may not exist in older databases
-    migrations = [
-        ("ALTER TABLE tv_shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT 0",
-         "UPDATE tv_shows SET published = 1"),
-        ("ALTER TABLE users ADD COLUMN joined_at TIMESTAMP DEFAULT NOW()", None),
-        ("ALTER TABLE users ADD COLUMN last_active TIMESTAMP DEFAULT NOW()", None),
-        ("ALTER TABLE movies ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
-        ("ALTER TABLE tv_shows ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
-        ("ALTER TABLE episodes ADD COLUMN indexed_at TIMESTAMP DEFAULT NOW()", None),
-    ]
-    for alter_sql, post_sql in migrations:
+    # Uses IF NOT EXISTS for PostgreSQL (avoids silent failures)
+    is_pg = "postgresql" in settings.DATABASE_URL or "postgres" in settings.DATABASE_URL
+    if is_pg:
+        migrations = [
+            "ALTER TABLE tv_shows ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE",
+            "UPDATE tv_shows SET published = TRUE WHERE published IS NULL OR published = FALSE",
+            "ALTER TABLE tv_shows ADD COLUMN IF NOT EXISTS detected_pattern VARCHAR(100)",
+            "ALTER TABLE tv_shows ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE movies ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE episodes ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMP DEFAULT NOW()",
+        ]
+    else:
+        migrations = [
+            "ALTER TABLE tv_shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT 0",
+            "UPDATE tv_shows SET published = 1",
+            "ALTER TABLE tv_shows ADD COLUMN detected_pattern VARCHAR(100)",
+            "ALTER TABLE tv_shows ADD COLUMN indexed_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN joined_at TIMESTAMP",
+            "ALTER TABLE users ADD COLUMN last_active TIMESTAMP",
+            "ALTER TABLE movies ADD COLUMN indexed_at TIMESTAMP",
+            "ALTER TABLE episodes ADD COLUMN indexed_at TIMESTAMP",
+        ]
+    for sql in migrations:
         try:
             async with engine.begin() as conn:
-                await conn.execute(text(alter_sql))
-            if post_sql:
-                async with engine.begin() as conn:
-                    await conn.execute(text(post_sql))
-        except Exception:
-            pass  # Column already exists — ignore
+                await conn.execute(text(sql))
+            logger.info("Migration OK: %s", sql[:60])
+        except Exception as e:
+            logger.debug("Migration skipped (%s): %s", type(e).__name__, sql[:60])
 
 
 # â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

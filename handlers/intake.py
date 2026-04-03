@@ -173,11 +173,42 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ── Session management ────────────────────────────────────────────────────────
 
+async def _auto_close_session(context) -> None:
+    """Close the active session silently (used when a new session starts without `final`)."""
+    global _active_session
+    if not _active_session:
+        return
+    session = _active_session
+    _active_session = None
+    show = session["show"]
+    count = session["episode_count"]
+    emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
+    await _notify(
+        context,
+        f"⚠️ Sesión anterior cerrada automáticamente.\n"
+        f"{emoji} *{show.name}* — {count} episodio(s) indexado(s).",
+    )
+    if count > 0:
+        content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
+        await _notify_groups(
+            context,
+            title=show.name,
+            year=show.year,
+            poster_url=show.poster_url,
+            deeplink=f"watch_{content_type_str}_{show.id}",
+            emoji=emoji,
+        )
+
+
 async def _start_show_session(
     name: str, content_type: ContentType, context
 ) -> None:
     """Look up or create the show and open a new indexing session."""
     global _active_session
+
+    # Auto-close any lingering session before starting a new one
+    if _active_session:
+        await _auto_close_session(context)
 
     emoji = "🎌" if content_type == ContentType.ANIME else "📺"
     await _notify(context, f"🔍 Buscando *{name}* en base de datos y TMDB…")

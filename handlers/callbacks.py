@@ -47,11 +47,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Navigation ────────────────────────────────────────────
         if data == "menu:main":
             await query.answer()
-            is_active, _ = await db.check_subscription(query.from_user.id)
-            is_admin = settings.is_admin(query.from_user.id)
             await query.edit_message_text(
                 WELCOME_TEXT,
-                reply_markup=main_menu_keyboard(has_plan=is_active or is_admin),
+                reply_markup=main_menu_keyboard(),
                 parse_mode="Markdown",
             )
 

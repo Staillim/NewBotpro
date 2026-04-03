@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from config.settings import settings
 from database import db_manager as db
-from database.models import ContentType, PlanType
+from database.models import ContentType
 
 logger = logging.getLogger(__name__)
 PAGE_SIZE = settings.CATALOG_PAGE_SIZE
@@ -91,9 +91,6 @@ async def show_movies_page(update: Update, context: ContextTypes.DEFAULT_TYPE, p
 async def show_shows_page(update: Update, context: ContextTypes.DEFAULT_TYPE,
                            content_type: ContentType, page: int = 0):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     shows, total = await db.get_shows_page(content_type, page, PAGE_SIZE)
     total_pages = max(1, math.ceil(total / PAGE_SIZE))

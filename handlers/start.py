@@ -7,14 +7,13 @@ from telegram.ext import ContextTypes
 
 from config.settings import settings
 from database import db_manager as db
-from database.models import PlanType
 
 logger = logging.getLogger(__name__)
 
 
 # ── Main Menu Keyboard ───────────────────────────────────────────────────────
 
-def main_menu_keyboard(has_plan: bool = False) -> InlineKeyboardMarkup:
+def main_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton("🎬 Películas", callback_data="cat:movies:0"),
@@ -28,21 +27,12 @@ def main_menu_keyboard(has_plan: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton("⭐ Mis Favoritos", callback_data="favorites:list"),
         ],
     ]
-    # Catalog WebApp button – only shown when WEBAPP_URL is configured
     if settings.WEBAPP_URL:
         buttons.append([
             InlineKeyboardButton(
                 "🌐 Catálogo Web",
                 web_app=WebAppInfo(url=settings.WEBAPP_URL),
             )
-        ])
-    if has_plan:
-        buttons.append([
-            InlineKeyboardButton("👤 Mi Cuenta", callback_data="account:info"),
-        ])
-    else:
-        buttons.append([
-            InlineKeyboardButton("💎 Planes Premium", callback_data="plans:show"),
         ])
     return InlineKeyboardMarkup(buttons)
 
@@ -123,96 +113,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🚫 Tu cuenta ha sido suspendida.")
         return
 
-    # Admins always get full access — no plan required
-    is_admin = settings.is_admin(user.id)
-
-    # Check subscription
-    is_active, plan = await db.check_subscription(user.id)
-
     # ── Handle catalog deeplinks from WebApp ──
     if catalog_deeplink:
-        await _handle_catalog_deeplink(update, catalog_deeplink, is_active or is_admin, plan)
+        await _handle_catalog_deeplink(update, catalog_deeplink)
         return
 
-    if is_active or is_admin:
-        await update.message.reply_text(
-            WELCOME_TEXT,
-            reply_markup=main_menu_keyboard(has_plan=True),
-            parse_mode="Markdown",
-        )
-    else:
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
-                InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
-            ],
-        ])
-        await update.message.reply_text(
-            NOT_SUBSCRIBED_TEXT,
-            reply_markup=kb,
-            parse_mode="Markdown",
-        )
+    await update.message.reply_text(
+        WELCOME_TEXT,
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle verification button press."""
+    """Handle verification button press (kept for old buttons)."""
     query = update.callback_query
     await query.answer()
-    user = query.from_user
-
-    try:
-        member = await context.bot.get_chat_member(
-            settings.VERIFICATION_CHANNEL_ID, user.id
-        )
-        if member.status in ("left", "kicked"):
-            await query.answer("❌ Aún no te has unido al canal.", show_alert=True)
-            return
-    except Exception:
-        pass
-
-    await db.set_user_verified(user.id)
-
-    is_active, plan = await db.check_subscription(user.id)
-    if is_active:
-        await query.edit_message_text(
-            WELCOME_TEXT,
-            reply_markup=main_menu_keyboard(has_plan=True),
-            parse_mode="Markdown",
-        )
-    else:
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
-                InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
-            ],
-        ])
-        await query.edit_message_text(
-            NOT_SUBSCRIBED_TEXT,
-            reply_markup=kb,
-            parse_mode="Markdown",
-        )
+    await query.edit_message_text(
+        WELCOME_TEXT,
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 # ── Catalog deeplink handler ─────────────────────────────────────────────────
 
-async def _handle_catalog_deeplink(
-    update: Update,
-    arg: str,
-    is_active: bool,
-    plan,
-):
+async def _handle_catalog_deeplink(update: Update, arg: str):
     """Handle watch_movie_ID and watch_show_ID deeplinks from the WebApp."""
-    if not is_active:
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
-            InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
-        ]])
-        await update.message.reply_text(
-            NOT_SUBSCRIBED_TEXT, reply_markup=kb, parse_mode="Markdown"
-        )
-        return
-
-    protect = plan != PlanType.PRO
+    protect = False
 
     if arg.startswith("watch_movie_"):
         try:

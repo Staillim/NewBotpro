@@ -40,6 +40,7 @@ from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
 from handlers.intake import handle_channel_post
 from handlers.payment import pre_checkout_handler, successful_payment_handler
+from handlers.group_search import handle_group_message
 from handlers.search import handle_search_query
 from handlers.start import start_command
 
@@ -97,6 +98,10 @@ def _build_tg_application():
         handle_search_query,
     ))
     tg.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+        handle_group_message,
+    ))
+    tg.add_handler(MessageHandler(
         filters.UpdateType.CHANNEL_POST,
         handle_channel_post,
     ))
@@ -118,7 +123,7 @@ async def _ensure_webhook() -> None:
         await _tg_app.bot.set_webhook(
             url=_webhook_url,
             drop_pending_updates=False,
-            allowed_updates=["message", "callback_query", "channel_post"],
+            allowed_updates=["message", "callback_query", "channel_post", "my_chat_member"],
         )
         wh = await _tg_app.bot.get_webhook_info()
         logger.info("Webhook SET → %s | pending=%s | error=%s",

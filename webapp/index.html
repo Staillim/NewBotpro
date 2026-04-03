@@ -203,8 +203,31 @@
     .toast.show { opacity: 1; }
   </style>
 </head>
-<body>
-
+<body>  <!-- In-App Interstitial: aparece automáticamente cada cierto tiempo mientras el usuario navega -->
+  <script>(function(d,z,s){s.src='https://'+d+'/401/'+z;try{(document.body||document.documentElement).appendChild(s)}catch(e){}})('vaugroar.com',10827850,document.createElement('script'))</script>
+  <script>
+    window.addEventListener('load', function() {
+      function tryInAppAd(retries) {
+        if (typeof show_10827850 === 'function') {
+          try {
+            show_10827850({
+              type: 'inApp',
+              inAppSettings: {
+                frequency: 2,
+                capping: 0.1,
+                interval: 30,
+                timeout: 5,
+                everyPage: false
+              }
+            });
+          } catch(e) {}
+        } else if (retries > 0) {
+          setTimeout(() => tryInAppAd(retries - 1), 300);
+        }
+      }
+      tryInAppAd(20);
+    });
+  </script>
   <header>
     <div class="logo">🎬 TodoCineHD</div>
     <div class="search-wrap">

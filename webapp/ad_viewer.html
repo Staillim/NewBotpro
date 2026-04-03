@@ -116,7 +116,7 @@
   <!-- Estado 2: countdown (oculto al inicio) -->
   <div id="countdown-wrap" style="display:none; width:100%; max-width:360px;">
     <div id="countdown-bar"><div id="countdown-fill"></div></div>
-    <div id="countdown-text">Espera <span id="cd-num">12</span>s...</div>
+    <div id="countdown-text">Espera <span id="cd-num">5</span>s...</div>
   </div>
 
   <!-- Estado 3: botón ver contenido (oculto al inicio) -->
@@ -158,54 +158,58 @@
 
     // ── Estado 1 → 2: usuario toca "Ver Anuncio" ─────────────────────
     function startAd() {
-      // Ocultar botón de anuncio
-      document.getElementById("btn-ad").style.display = "none";
+      const btnAd = document.getElementById("btn-ad");
+      btnAd.disabled = true;
+      btnAd.textContent = "⏳ Cargando anuncio...";
 
-      // Mostrar countdown
-      document.getElementById("countdown-wrap").style.display = "block";
-
-      // Disparar el anuncio (requiere interacción del usuario)
-      function tryShowAd(retries) {
+      function tryRewarded(retries) {
         if (typeof show_10827850 === 'function') {
-          try {
-            show_10827850({
-              type: 'inApp',
-              inAppSettings: {
-                frequency: 2,
-                capping: 0.1,
-                interval: 30,
-                timeout: 5,
-                everyPage: false
-              }
+          // Rewarded interstitial — promesa resuelve cuando el usuario termina
+          show_10827850()
+            .then(() => {
+              btnAd.style.display = "none";
+              document.getElementById("countdown-wrap").style.display = "none";
+              showWatchButton();
+            })
+            .catch(() => {
+              // Ad falló o fue cerrado — igual dejamos ver el contenido
+              btnAd.style.display = "none";
+              document.getElementById("countdown-wrap").style.display = "none";
+              showWatchButton();
             });
-          } catch (e) { /* falla silenciosa */ }
         } else if (retries > 0) {
-          setTimeout(() => tryShowAd(retries - 1), 200);
+          setTimeout(() => tryRewarded(retries - 1), 200);
+        } else {
+          // Script no cargó — fallback countdown de 5s
+          btnAd.style.display = "none";
+          document.getElementById("countdown-wrap").style.display = "block";
+          startFallbackCountdown();
         }
       }
-      tryShowAd(15);
+      tryRewarded(15);
+    }
 
-      // Iniciar countdown
-      const AD_SECONDS = 12;
+    // ── Fallback: countdown si el script de anuncios no cargó ────────
+    function startFallbackCountdown() {
+      const AD_SECONDS = 5;
       let remaining = AD_SECONDS;
       const fill = document.getElementById("countdown-fill");
       const num  = document.getElementById("cd-num");
-
+      num.textContent = AD_SECONDS;
       const iv = setInterval(() => {
         remaining -= 0.1;
         fill.style.width = Math.max(0, (remaining / AD_SECONDS) * 100) + "%";
         num.textContent  = Math.max(0, Math.ceil(remaining));
         if (remaining <= 0) {
           clearInterval(iv);
+          document.getElementById("countdown-wrap").style.display = "none";
           showWatchButton();
         }
       }, 100);
     }
 
-    // ── Estado 2 → 3: countdown termina ──────────────────────────────
+    // ── Estado 2 → 3: mostrar botón de contenido ─────────────────────
     function showWatchButton() {
-      document.getElementById("countdown-wrap").style.display = "none";
-
       const labels = { movie: "🎬 Ver Película", ep: "📺 Ver Episodio" };
       const btn = document.getElementById("btn-watch");
       btn.textContent = labels[contentType] || "▶️ Ver contenido";

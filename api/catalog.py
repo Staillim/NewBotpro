@@ -112,7 +112,11 @@ async def lifespan(fastapi_app: FastAPI):
             drop_pending_updates=True,
         )
         me = await _tg_app.bot.get_me()
+        wh_info = await _tg_app.bot.get_webhook_info()
         logger.info("Webhook set: %s  (@%s)", webhook_url, me.username)
+        logger.info("Webhook info: url=%s pending=%s last_error=%s",
+                    wh_info.url, wh_info.pending_update_count, wh_info.last_error_message)
+        logger.info("ADMIN_IDS configured: %s", settings.ADMIN_IDS)
     else:
         logger.warning("WEBAPP_URL not set - webhook NOT registered. Bot won't receive messages.")
 
@@ -143,12 +147,20 @@ app.add_middleware(
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
     if token != settings.BOT_TOKEN:
+        logger.warning("Webhook: invalid token received")
         raise HTTPException(status_code=403, detail="Forbidden")
-    data = await request.json()
-    update = Update.de_json(data, _tg_app.bot)
-    # Fire-and-forget WITH strong reference — returns 200 instantly to Telegram
-    # so it never retries. _bg_task keeps the task alive until completion.
-    _bg_task(_tg_app.process_update(update))
+    if _tg_app is None:
+        logger.error("Webhook: _tg_app is None - bot not initialized yet")
+        return Response(content="not ready", status_code=503)
+    try:
+        data = await request.json()
+        update_id = data.get("update_id", "?")
+        logger.info("Webhook received update_id=%s", update_id)
+        update = Update.de_json(data, _tg_app.bot)
+        _bg_task(_tg_app.process_update(update))
+        logger.info("Webhook enqueued update_id=%s", update_id)
+    except Exception as exc:
+        logger.exception("Webhook failed to enqueue update: %s", exc)
     return Response(content="ok")
 
 

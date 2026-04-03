@@ -44,11 +44,14 @@ def admin_only(func):
 
 async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
     """Build and send the main admin panel with live stats."""
-    total_users = await db.get_total_users()
-    active_subs = await db.get_active_subscribers()
-    total_movies = await db.get_total_movies()
-    total_series = await db.get_total_shows(ContentType.SERIES)
-    total_anime = await db.get_total_shows(ContentType.ANIME)
+    try:
+        total_users = await db.get_total_users()
+        active_subs = await db.get_active_subscribers()
+        total_movies = await db.get_total_movies()
+        total_series = await db.get_total_shows(ContentType.SERIES)
+        total_anime = await db.get_total_shows(ContentType.ANIME)
+    except Exception:
+        total_users = active_subs = total_movies = total_series = total_anime = "?"
 
     text = (
         "🛠️ *Panel de Administración — TodoCineHD*\n\n"
@@ -59,7 +62,7 @@ async def send_admin_panel(msg_or_query, context: ContextTypes.DEFAULT_TYPE):
         f"🎬 Películas: `{total_movies}`\n"
         f"📺 Series: `{total_series}`\n"
         f"🎌 Anime: `{total_anime}`\n"
-        f"📦 Total: `{total_movies + total_series + total_anime}`"
+        f"📦 Total: `{sum(x for x in [total_movies, total_series, total_anime] if isinstance(x, int))}`"
     )
 
     buttons = [

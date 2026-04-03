@@ -86,8 +86,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Admins get the admin panel ──
     if settings.is_admin(user.id):
-        from handlers.admin import send_admin_panel
-        await send_admin_panel(update.message, context)
+        try:
+            from handlers.admin import send_admin_panel
+            await send_admin_panel(update.message, context)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("send_admin_panel error: %s", exc, exc_info=True)
+            await update.message.reply_text(
+                "🛠️ *Panel de Administración*\n\n"
+                "⚠️ Error cargando estadísticas. Usa /admin para reintentar.",
+                parse_mode="Markdown",
+            )
         return
 
     # ── Handle catalog deeplinks from WebApp ──

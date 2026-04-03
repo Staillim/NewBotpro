@@ -66,11 +66,33 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     if query:
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="Markdown",
-        )
+        # If the message has a photo (poster), we can't edit_message_text —
+        # delete it and send a new text message instead.
+        if query.message.photo or query.message.document:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode="Markdown",
+            )
+        else:
+            try:
+                await query.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode="Markdown",
+                )
     else:
         await update.message.reply_text(
             text,

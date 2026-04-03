@@ -67,6 +67,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         elif arg.startswith(("watch_movie_", "watch_show_", "watch_series_", "watch_anime_", "watch_ep_")):
             catalog_deeplink = arg
+        elif arg == "plans":
+            catalog_deeplink = "plans"
 
     # Register/update user
     db_user = await db.get_or_create_user(
@@ -114,7 +116,12 @@ async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Catalog deeplink handler ─────────────────────────────────────────────────
 
 async def _handle_catalog_deeplink(update: Update, arg: str):
-    """Handle watch_movie_ID, watch_show_ID, watch_series_ID, watch_anime_ID deeplinks."""
+    """Handle watch_movie_ID, watch_show_ID, watch_series_ID, watch_anime_ID, plans deeplinks."""
+
+    if arg == "plans":
+        from handlers.subscription import show_plans
+        await show_plans(update, None)
+        return
 
     if arg.startswith("watch_movie_"):
         try:

@@ -2,7 +2,7 @@
 
 import logging
 
-from telegram import LabeledPrice, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -127,15 +127,21 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             f"🎉 *¡Nuevo miembro Premium!*\n\n"
             f"👤 {display_name} acaba de adquirir el {label}.\n\n"
             f"¡Gracias por apoyar a CineStelar! Ahora puedes disfrutar de todo el "
-            f"catálogo sin anuncios, series, anime y mucho más. 🎬🍿\n\n"
-            f"_¿Quieres acceso Premium también? Escríbenos o usa /start_"
+            f"catálogo sin anuncios, series, anime y mucho más. 🎬🍿"
         )
+        group_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "💎 Adquirir un plan",
+                url=f"https://t.me/{settings.BOT_USERNAME}?start=plans",
+            )
+        ]])
         for chat_id in groups:
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=group_text,
                     parse_mode="Markdown",
+                    reply_markup=group_kb,
                 )
             except Exception as g_exc:
                 logger.warning("Group plan notify failed for %s: %s", chat_id, g_exc)

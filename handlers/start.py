@@ -125,6 +125,37 @@ async def _handle_catalog_deeplink(update: Update, arg: str):
         if not movie:
             await update.message.reply_text("⚠️ Película no encontrada.")
             return
+
+        user_id = update.effective_user.id
+        is_active, _ = await db.check_subscription(user_id)
+
+        if not is_active:
+            caption = (
+                f"🎬 *{movie.title}*\n\n"
+                f"_Necesitas un plan o ver un anuncio para continuar._"
+            )
+            buttons = [
+                [InlineKeyboardButton("📺 Ver con anuncio", callback_data=f"watch_ad:movie:{movie.id}")],
+                [InlineKeyboardButton("💎 Adquirir plan", callback_data="plans:show")],
+            ]
+            if movie.poster_url:
+                try:
+                    await update.message.reply_photo(
+                        movie.poster_url,
+                        caption=caption,
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                        parse_mode="Markdown",
+                    )
+                    return
+                except Exception:
+                    pass
+            await update.message.reply_text(
+                caption,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode="Markdown",
+            )
+            return
+
         caption = f"🎬 *{movie.title}*"
         if movie.year:
             caption += f"  ({movie.year})"

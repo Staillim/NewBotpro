@@ -210,8 +210,10 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
 
 # ── Season episodes list ─────────────────────────────────────────────────────
 
+EP_PAGE_SIZE = 5
+
 async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
-                       show_id: int, season: int):
+                       show_id: int, season: int, page: int = 0):
     query = update.callback_query
 
     show = await db.get_show(show_id)
@@ -221,12 +223,17 @@ async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await query.answer("No hay episodios disponibles.", show_alert=True)
         return
 
+    total = len(episodes)
+    total_pages = max(1, math.ceil(total / EP_PAGE_SIZE))
+    page = max(0, min(page, total_pages - 1))
+    page_eps = episodes[page * EP_PAGE_SIZE : (page + 1) * EP_PAGE_SIZE]
+
     emoji = "📺" if show and show.content_type == ContentType.SERIES else "🎌"
     title = show.name if show else "Serie"
 
-    text = f"{emoji} *{title}* — Temporada {season}\n\n"
+    text = f"{emoji} *{title}* — Temporada {season}  ({page + 1}/{total_pages})\n\n"
     buttons = []
-    for ep in episodes:
+    for ep in page_eps:
         ep_title = ep.title or f"Episodio {ep.episode_number}"
         text += f"• T{season}E{ep.episode_number}: {ep_title}\n"
         buttons.append([
@@ -235,6 +242,14 @@ async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 callback_data=f"watch:ep:{ep.id}"
             )
         ])
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"season:{show_id}:{season}:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"season:{show_id}:{season}:{page + 1}"))
+    if nav:
+        buttons.append(nav)
 
     buttons.append([InlineKeyboardButton("🔙 Volver", callback_data=f"show:{show_id}")])
 

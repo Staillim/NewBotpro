@@ -91,8 +91,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("season:"):
             show_id = int(parts[1])
             season = int(parts[2])
+            page = int(parts[3]) if len(parts) > 3 else 0
             await query.answer()
-            await show_season(update, context, show_id, season)
+            await show_season(update, context, show_id, season, page)
 
         # ── Watch ─────────────────────────────────────────────────
         elif data.startswith("watch:movie:"):

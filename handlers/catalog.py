@@ -155,6 +155,7 @@ async def show_movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 # ── Show detail (series/anime) ───────────────────────────────────────────────
 
 async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, show_id: int):
+    """Skip description page — go straight to episode list (or compact season selector)."""
     query = update.callback_query
 
     show = await db.get_show(show_id)
@@ -162,46 +163,31 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         await query.answer("No encontrado.", show_alert=True)
         return
 
-    emoji = "📺" if show.content_type == ContentType.SERIES else "🎌"
-    star = f"⭐ {show.vote_average:.1f}/10" if show.vote_average else ""
-    year = f"({show.year})" if show.year else ""
-    genres = f"🏷️ {show.genres}" if show.genres else ""
-    overview = show.overview[:300] + "..." if show.overview and len(show.overview) > 300 else (show.overview or "")
-
-    text = (
-        f"{emoji} *{show.name}* {year}\n"
-        f"{star}\n"
-        f"{genres}\n\n"
-        f"📝 {overview}\n\n"
-        f"📂 Selecciona una temporada:"
-    )
-
     seasons = await db.get_seasons(show_id)
+    if not seasons:
+        await query.answer("Esta serie aún no tiene episodios.", show_alert=True)
+        return
+
+    # Single season → go directly to episode list
+    if len(seasons) == 1:
+        await show_season(update, context, show_id, seasons[0], page=0)
+        return
+
+    # Multiple seasons → compact list (no poster/description, just season buttons)
+    emoji = "📺" if show.content_type == ContentType.SERIES else "🎌"
+    year = f" ({show.year})" if show.year else ""
+    text = f"{emoji} *{show.name}{year}*\n\nSelecciona una temporada:"
+
     buttons = []
     for s in seasons:
+        eps = await db.get_episodes(show_id, s)
+        ep_count = f"  ({len(eps)} ep.)" if eps else ""
         buttons.append([
-            InlineKeyboardButton(f"📁 Temporada {s}", callback_data=f"season:{show_id}:{s}")
+            InlineKeyboardButton(f"📁 Temporada {s}{ep_count}", callback_data=f"season:{show_id}:{s}:0")
         ])
 
     cat_key = "series" if show.content_type == ContentType.SERIES else "anime"
-    buttons.append([
-        InlineKeyboardButton("⭐ Favorito", callback_data=f"fav:add:{cat_key}:{show.id}"),
-        InlineKeyboardButton("🔙 Volver", callback_data=f"cat:{cat_key}:0"),
-    ])
-
-    if show.poster_url:
-        try:
-            await query.message.delete()
-            await context.bot.send_photo(
-                chat_id=query.message.chat_id,
-                photo=show.poster_url,
-                caption=text,
-                reply_markup=InlineKeyboardMarkup(buttons),
-                parse_mode="Markdown",
-            )
-            return
-        except Exception:
-            pass
+    buttons.append([InlineKeyboardButton("🔙 Volver", callback_data=f"cat:{cat_key}:0")])
 
     await query.edit_message_text(
         text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown"
@@ -210,7 +196,7 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
 
 # ── Season episodes list ─────────────────────────────────────────────────────
 
-EP_PAGE_SIZE = 5
+EP_PAGE_SIZE = 20
 
 async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
                        show_id: int, season: int, page: int = 0):
@@ -230,24 +216,24 @@ async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     emoji = "📺" if show and show.content_type == ContentType.SERIES else "🎌"
     title = show.name if show else "Serie"
+    year = f" ({show.year})" if show and show.year else ""
 
-    text = f"{emoji} *{title}* — Temporada {season}  ({page + 1}/{total_pages})\n\n"
+    page_info = f"  —  {page + 1}/{total_pages}" if total_pages > 1 else ""
+    text = f"{emoji} *{title}{year}*  — T{season}{page_info}\n\n"
+
     buttons = []
     for ep in page_eps:
         ep_title = ep.title or f"Episodio {ep.episode_number}"
-        text += f"• T{season}E{ep.episode_number}: {ep_title}\n"
+        label = f"▶️ {ep.episode_number}. {ep_title[:40]}"
         buttons.append([
-            InlineKeyboardButton(
-                f"▶️ T{season}E{ep.episode_number}: {ep_title[:30]}",
-                callback_data=f"watch:ep:{ep.id}"
-            )
+            InlineKeyboardButton(label, callback_data=f"watch:ep:{ep.id}")
         ])
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"season:{show_id}:{season}:{page - 1}"))
+        nav.append(InlineKeyboardButton("⬅️", callback_data=f"season:{show_id}:{season}:{page - 1}"))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton("Siguiente ➡️", callback_data=f"season:{show_id}:{season}:{page + 1}"))
+        nav.append(InlineKeyboardButton("➡️", callback_data=f"season:{show_id}:{season}:{page + 1}"))
     if nav:
         buttons.append(nav)
 

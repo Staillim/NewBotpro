@@ -243,7 +243,14 @@ async def _start_show_session(
 
 
 async def _add_episode(file_id: str, post: Message, context) -> None:
-    """Index a video as the next episode in the active session."""
+    """Index a video as the next episode in the active session — serialized to keep order."""
+    async with _index_lock:
+        await _do_add_episode(file_id, post, context)
+        await asyncio.sleep(1.0)  # brief pause to keep channel order
+
+
+async def _do_add_episode(file_id: str, post: Message, context) -> None:
+    """Internal: assign episode number, send to channel, and save to DB."""
     global _active_session
     if not _active_session:
         return

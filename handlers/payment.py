@@ -120,6 +120,26 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             except Exception as notify_exc:
                 logger.warning("Admin notify failed: %s", notify_exc)
 
+        # Notify groups
+        groups = await db.get_active_groups()
+        display_name = f"@{user.username}" if user.username else user.first_name
+        group_text = (
+            f"🎉 *¡Nuevo miembro Premium!*\n\n"
+            f"👤 {display_name} acaba de adquirir el {label}.\n\n"
+            f"¡Gracias por apoyar a CineStelar! Ahora puedes disfrutar de todo el "
+            f"catálogo sin anuncios, series, anime y mucho más. 🎬🍿\n\n"
+            f"_¿Quieres acceso Premium también? Escríbenos o usa /start_"
+        )
+        for chat_id in groups:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=group_text,
+                    parse_mode="Markdown",
+                )
+            except Exception as g_exc:
+                logger.warning("Group plan notify failed for %s: %s", chat_id, g_exc)
+
     except Exception as e:
         logger.error("Failed to activate plan for user %s: %s", user_id, e)
         await update.message.reply_text(

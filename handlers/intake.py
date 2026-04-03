@@ -1,0 +1,299 @@
+"""Handler: Real-time intake channel processing.
+
+Flow:
+  - Video/doc sent to intake channel → auto-indexed as movie
+  - "serie: Nombre"                  → opens a series session
+  - "anime: Nombre"                  → opens an anime session
+  - videos sent while session open   → indexed as episodes (auto S01E01, E02…)
+  - "final"                          → closes session, reports count
+"""
+
+import logging
+
+from telegram import Message, Update
+from telegram.ext import ContextTypes
+
+from config.settings import settings
+from database import db_manager as db
+from database.models import ContentType
+from utils import tmdb_api
+from utils.title_cleaner import clean_title, extract_episode_info, extract_year
+
+logger = logging.getLogger(__name__)
+
+# ── Session state (one active show at a time per process) ─────────────────────
+_active_session: dict | None = None
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _extract_file_id(msg: Message) -> str | None:
+    """Return file_id if the message contains a video or video-document."""
+    if msg.video:
+        return msg.video.file_id
+    if msg.document and (msg.document.mime_type or "").startswith("video/"):
+        return msg.document.file_id
+    return None
+
+
+async def _notify(context, text: str) -> None:
+    """Send a status message to the first admin's private chat."""
+    if not settings.ADMIN_IDS:
+        logger.warning("_notify: no ADMIN_IDS configured")
+        return
+    try:
+        await context.bot.send_message(
+            chat_id=settings.ADMIN_IDS[0],
+            text=text,
+            parse_mode="Markdown",
+        )
+    except Exception as exc:
+        logger.warning("Admin notification failed: %s", exc)
+
+
+# ── Main channel-post handler ─────────────────────────────────────────────────
+
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Entry point for every post in the intake channel."""
+    global _active_session
+
+    post = update.channel_post
+    if not post:
+        return
+
+    # Only react to the configured intake channel
+    if post.chat.id != settings.INTAKE_CHANNEL_ID:
+        return
+
+    text = (post.text or post.caption or "").strip()
+    tl = text.lower()
+
+    # ── serie: NAME ───────────────────────────────────────────────────────────
+    if tl.startswith("serie:"):
+        name = text[6:].strip()
+        if not name:
+            await _notify(context, "❌ Falta el nombre.\nEjemplo: `serie: Breaking Bad`")
+            return
+        await _start_show_session(name, ContentType.SERIES, context)
+        return
+
+    # ── anime: NAME ───────────────────────────────────────────────────────────
+    if tl.startswith("anime:"):
+        name = text[6:].strip()
+        if not name:
+            await _notify(context, "❌ Falta el nombre.\nEjemplo: `anime: Naruto`")
+            return
+        await _start_show_session(name, ContentType.ANIME, context)
+        return
+
+    # ── final ─────────────────────────────────────────────────────────────────
+    if tl == "final":
+        if not _active_session:
+            await _notify(context, "⚠️ No hay ninguna sesión activa.")
+            return
+        session = _active_session
+        _active_session = None
+        show = session["show"]
+        count = session["episode_count"]
+        emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
+        await _notify(
+            context,
+            f"✅ *Sesión finalizada*\n\n"
+            f"{emoji} *{show.name}*\n"
+            f"📦 {count} episodio(s) indexado(s)",
+        )
+        return
+
+    # ── Video file ────────────────────────────────────────────────────────────
+    file_id = _extract_file_id(post)
+    if not file_id:
+        return  # text not matching any command — ignore
+
+    if _active_session:
+        await _add_episode(file_id, post, context)
+    else:
+        await _index_movie(file_id, post, context)
+
+
+# ── Session management ────────────────────────────────────────────────────────
+
+async def _start_show_session(
+    name: str, content_type: ContentType, context
+) -> None:
+    """Look up or create the show and open a new indexing session."""
+    global _active_session
+
+    emoji = "🎌" if content_type == ContentType.ANIME else "📺"
+    await _notify(context, f"🔍 Buscando *{name}* en base de datos y TMDB…")
+
+    # Check DB first
+    existing = await db.search_shows(name, content_type, limit=1)
+    if existing:
+        show = existing[0]
+        await _notify(
+            context,
+            f"{emoji} *{show.name}* encontrada en DB.\n"
+            f"Envía los episodios y escribe `final` cuando termines.",
+        )
+    else:
+        # Search TMDB
+        tmdb_data: dict = {}
+        try:
+            results = await tmdb_api.search_tv(name)
+            if results:
+                tmdb_data = results[0]
+                if content_type == ContentType.ANIME and tmdb_data.get("tmdb_id"):
+                    is_anime = await tmdb_api.is_anime(tmdb_data["tmdb_id"])
+                    if is_anime:
+                        content_type = ContentType.ANIME
+        except Exception as exc:
+            logger.warning("TMDB search failed for '%s': %s", name, exc)
+
+        show = await db.add_tv_show(
+            name=tmdb_data.get("name", name),
+            original_name=tmdb_data.get("original_name"),
+            content_type=content_type,
+            tmdb_id=tmdb_data.get("tmdb_id"),
+            year=tmdb_data.get("year"),
+            overview=tmdb_data.get("overview"),
+            poster_url=tmdb_data.get("poster_url"),
+            backdrop_url=tmdb_data.get("backdrop_url"),
+            vote_average=tmdb_data.get("vote_average"),
+            genres=tmdb_data.get("genres"),
+            number_of_seasons=tmdb_data.get("number_of_seasons"),
+            status=tmdb_data.get("status"),
+        )
+        await _notify(
+            context,
+            f"{emoji} *{show.name}* creada correctamente.\n"
+            f"Envía los episodios y escribe `final` cuando termines.",
+        )
+
+    _active_session = {
+        "show": show,
+        "episode_count": 0,
+        "next_episode": 1,
+        "season": 1,
+    }
+
+
+async def _add_episode(file_id: str, post: Message, context) -> None:
+    """Index a video as the next episode in the active session."""
+    global _active_session
+    if not _active_session:
+        return
+
+    session = _active_session
+    show = session["show"]
+    caption = (post.caption or "").strip()
+
+    # Try to parse S/E from caption; fall back to auto-increment
+    ep_info = extract_episode_info(caption) or {
+        "season": session["season"],
+        "episode": session["next_episode"],
+    }
+
+    dest_channel = (
+        settings.ANIME_CHANNEL_ID
+        if show.content_type == ContentType.ANIME
+        else settings.SERIES_CHANNEL_ID
+    )
+    emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
+
+    channel_msg_id = None
+    try:
+        sent = await context.bot.send_video(
+            chat_id=dest_channel,
+            video=file_id,
+            caption=f"{emoji} {show.name} — T{ep_info['season']:02d}E{ep_info['episode']:02d}",
+        )
+        channel_msg_id = sent.message_id
+    except Exception as exc:
+        logger.error("Failed to distribute episode: %s", exc)
+
+    # Fetch episode metadata from TMDB (best-effort)
+    ep_meta: dict = {}
+    if show.tmdb_id:
+        try:
+            ep_meta = await tmdb_api.get_episode_details(
+                show.tmdb_id, ep_info["season"], ep_info["episode"]
+            ) or {}
+        except Exception:
+            pass
+
+    await db.add_episode(
+        tv_show_id=show.id,
+        file_id=file_id,
+        message_id=post.message_id,
+        channel_message_id=channel_msg_id,
+        season_number=ep_info["season"],
+        episode_number=ep_info["episode"],
+        title=ep_meta.get("title"),
+        overview=ep_meta.get("overview"),
+        air_date=ep_meta.get("air_date"),
+        runtime=ep_meta.get("runtime"),
+        still_path=ep_meta.get("still_path"),
+        raw_caption=caption,
+    )
+
+    session["episode_count"] += 1
+    session["next_episode"] = ep_info["episode"] + 1
+
+    logger.info(
+        "Episode indexed: %s S%02dE%02d (msg_id=%s)",
+        show.name, ep_info["season"], ep_info["episode"], post.message_id,
+    )
+
+
+# ── Movie auto-index ──────────────────────────────────────────────────────────
+
+async def _index_movie(file_id: str, post: Message, context) -> None:
+    """Auto-index a video as a movie."""
+    caption = (post.caption or "").strip()
+    clean = clean_title(caption)
+    year = extract_year(caption)
+
+    # Search TMDB
+    tmdb_data: dict = {}
+    if clean:
+        try:
+            results = await tmdb_api.search_movie(clean, year)
+            if results:
+                tmdb_data = results[0]
+        except Exception as exc:
+            logger.warning("TMDB movie search failed for '%s': %s", clean, exc)
+
+    title = tmdb_data.get("title", clean or caption[:100] or "Sin título")
+    year_val = tmdb_data.get("year", year)
+
+    channel_msg_id = None
+    caption_text = f"🎬 {title} ({year_val})" if year_val else f"🎬 {title}"
+    try:
+        sent = await context.bot.send_video(
+            chat_id=settings.MOVIES_CHANNEL_ID,
+            video=file_id,
+            caption=caption_text,
+        )
+        channel_msg_id = sent.message_id
+    except Exception as exc:
+        logger.error("Failed to distribute movie: %s", exc)
+
+    await db.add_movie(
+        file_id=file_id,
+        message_id=post.message_id,
+        channel_message_id=channel_msg_id,
+        title=title,
+        original_title=tmdb_data.get("original_title"),
+        year=year_val,
+        overview=tmdb_data.get("overview"),
+        poster_url=tmdb_data.get("poster_url"),
+        backdrop_url=tmdb_data.get("backdrop_url"),
+        vote_average=tmdb_data.get("vote_average"),
+        runtime=tmdb_data.get("runtime"),
+        genres=tmdb_data.get("genres"),
+        tmdb_id=tmdb_data.get("tmdb_id"),
+        raw_caption=caption,
+    )
+
+    await _notify(context, f"✅ Película *{title}* indexada correctamente.")
+    logger.info("Movie indexed: %s (msg_id=%s)", title, post.message_id)

@@ -36,6 +36,7 @@ from handlers.admin import (
 )
 from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
+from handlers.intake import handle_channel_post
 from handlers.search import handle_search_query
 from handlers.start import start_command
 
@@ -80,6 +81,8 @@ def _build_tg_application():
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_search_query,
     ))
+    # Intake channel: movies auto-index, series/anime via session
+    tg.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     tg.add_error_handler(_ptb_error_handler)
     return tg
 

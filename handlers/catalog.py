@@ -14,40 +14,10 @@ logger = logging.getLogger(__name__)
 PAGE_SIZE = settings.CATALOG_PAGE_SIZE
 
 
-# ── Subscription guard ────────────────────────────────────────────────────────
-
-async def require_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[bool, PlanType]:
-    """Check if user has active subscription. Returns (is_active, plan)."""
-    user_id = update.effective_user.id
-    is_active, plan = await db.check_subscription(user_id)
-    if not is_active:
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
-                InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
-            ],
-        ])
-        text = (
-            "⚠️ *Necesitas una suscripción activa*\n\n"
-            "Elige un plan para acceder al catálogo completo."
-        )
-        if update.callback_query:
-            await update.callback_query.answer("Necesitas una suscripción activa", show_alert=True)
-            try:
-                await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
-            except Exception:
-                pass
-        return False, PlanType.NONE
-    return True, plan
-
-
 # ── Category list (movies page) ──────────────────────────────────────────────
 
 async def show_movies_page(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     movies, total = await db.get_movies_page(page, PAGE_SIZE)
     total_pages = max(1, math.ceil(total / PAGE_SIZE))
@@ -135,9 +105,6 @@ async def show_shows_page(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def show_movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_id: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     movie = await db.get_movie(movie_id)
     if not movie:
@@ -159,13 +126,8 @@ async def show_movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     )
 
     buttons = []
-    # Watch button – always available for subscribers
     buttons.append([InlineKeyboardButton("▶️ Ver Película", callback_data=f"watch:movie:{movie.id}")])
-
-    # Download – only for PRO
-    if plan == PlanType.PRO:
-        buttons.append([InlineKeyboardButton("💾 Guardar en Dispositivo", callback_data=f"download:movie:{movie.id}")])
-
+    buttons.append([InlineKeyboardButton("💾 Guardar en Dispositivo", callback_data=f"download:movie:{movie.id}")])
     buttons.append([
         InlineKeyboardButton("⭐ Favorito", callback_data=f"fav:add:movie:{movie.id}"),
         InlineKeyboardButton("🔙 Volver", callback_data="cat:movies:0"),
@@ -194,9 +156,6 @@ async def show_movie_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, show_id: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     show = await db.get_show(show_id)
     if not show:
@@ -254,9 +213,6 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
 async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
                        show_id: int, season: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     show = await db.get_show(show_id)
     episodes = await db.get_episodes(show_id, season)
@@ -291,9 +247,6 @@ async def show_season(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_id: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     movie = await db.get_movie(movie_id)
     if not movie:
@@ -307,7 +260,6 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
             video=movie.file_id,
             caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_CineStelar Premium_",
             parse_mode="Markdown",
-            protect_content=plan != PlanType.PRO,  # Protect if NOT Pro
         )
         await db.log_activity(query.from_user.id, "watch_movie", movie.id, "movie")
     except Exception as e:
@@ -320,9 +272,6 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
 
 async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, episode_id: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
 
     ep = await db.get_episode(episode_id)
     if not ep:
@@ -344,7 +293,6 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
                 f"_CineStelar Premium_"
             ),
             parse_mode="Markdown",
-            protect_content=plan != PlanType.PRO,
         )
         content_type = "anime" if (show and show.content_type == ContentType.ANIME) else "series"
         await db.log_activity(query.from_user.id, "watch_episode", ep.id, content_type)
@@ -358,16 +306,6 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
 
 async def download_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_id: int):
     query = update.callback_query
-    ok, plan = await require_subscription(update, context)
-    if not ok:
-        return
-
-    if plan != PlanType.PRO:
-        await query.answer(
-            "💎 La descarga solo está disponible con el Plan Pro ($5/mes)",
-            show_alert=True,
-        )
-        return
 
     movie = await db.get_movie(movie_id)
     if not movie:
@@ -395,9 +333,6 @@ async def download_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, mov
 
 async def show_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    ok, _ = await require_subscription(update, context)
-    if not ok:
-        return
 
     favs = await db.get_favorites(query.from_user.id)
     if not favs:

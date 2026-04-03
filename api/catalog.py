@@ -1,6 +1,5 @@
 """FastAPI catalog API + Telegram bot via webhook (production-ready)."""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -46,8 +45,6 @@ _PAGE_SIZE = 12
 
 # ── Global state ──────────────────────────────────────────────────────────────
 _tg_app = None
-# Strong references to running tasks so GC doesn't kill them
-_tasks: set[asyncio.Task] = set()
 
 
 def _build_tg_application():
@@ -88,14 +85,6 @@ def _build_tg_application():
 
 async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("PTB handler error: %s", context.error, exc_info=context.error)
-
-
-async def _safe_process(update: Update) -> None:
-    """Process one update with full error protection."""
-    try:
-        await _tg_app.process_update(update)
-    except Exception:
-        logger.exception("process_update failed for update_id=%s", update.update_id)
 
 
 @asynccontextmanager
@@ -155,8 +144,7 @@ app.add_middleware(
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
-    """Process update via fire-and-forget task with strong reference.
-    Returns 200 in <5ms. Handler runs in background."""
+    """Receive update and process it inline. Telegram allows up to 60s."""
     if token != settings.BOT_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
     if _tg_app is None:
@@ -164,12 +152,9 @@ async def telegram_webhook(token: str, request: Request):
     try:
         data = await request.json()
         update = Update.de_json(data, _tg_app.bot)
-        # Create task + keep strong ref so GC cannot collect it
-        task = asyncio.create_task(_safe_process(update))
-        _tasks.add(task)
-        task.add_done_callback(_tasks.discard)
+        await _tg_app.process_update(update)
     except Exception:
-        logger.exception("Webhook parse error")
+        logger.exception("Webhook error")
     return Response(content="ok")
 
 
@@ -181,10 +166,7 @@ async def health_head():
 
 @app.get("/health")
 async def health_check():
-    return {
-        "status": "ok" if _tg_app else "starting",
-        "active_tasks": len(_tasks),
-    }
+    return {"status": "ok" if _tg_app else "starting"}
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

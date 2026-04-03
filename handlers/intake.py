@@ -215,9 +215,8 @@ async def _start_show_session(
     """Look up or create the show and open a new indexing session."""
     global _active_session
 
-    # Auto-close any lingering session before starting a new one
-    if _active_session:
-        await _auto_close_session(context)
+    # Save previous session — only close it AFTER the new one succeeds
+    previous_session = _active_session
 
     emoji = "🎌" if content_type == ContentType.ANIME else "📺"
     await _notify(context, f"🔍 Buscando *{name}* en base de datos y TMDB…")
@@ -225,7 +224,32 @@ async def _start_show_session(
         await _do_start_show_session(name, content_type, emoji, context)
     except Exception as exc:
         logger.error("_start_show_session error: %s", exc, exc_info=True)
+        # Restore the previous session so episodes keep going there
+        _active_session = previous_session
         await _notify(context, f"❌ Error al crear la sesión para '{name}': {type(exc).__name__}")
+        return
+
+    # New session created successfully — now close the old one if it existed
+    if previous_session:
+        show = previous_session["show"]
+        count = previous_session["episode_count"]
+        e = "🎌" if show.content_type == ContentType.ANIME else "📺"
+        await _notify(
+            context,
+            f"⚠️ Sesión anterior cerrada automáticamente.\n"
+            f"{e} *{show.name}* — {count} episodio(s) indexado(s).",
+        )
+        if count > 0:
+            await db.publish_show(show.id)
+            ct_str = "anime" if show.content_type == ContentType.ANIME else "series"
+            await _notify_groups(
+                context,
+                title=show.name,
+                year=show.year,
+                poster_url=show.poster_url,
+                deeplink=f"watch_{ct_str}_{show.id}",
+                emoji=e,
+            )
 
 
 async def _do_start_show_session(

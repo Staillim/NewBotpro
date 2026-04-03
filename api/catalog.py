@@ -1,6 +1,5 @@
 """FastAPI catalog API + Telegram bot via webhook (no polling conflict)."""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -133,8 +132,7 @@ async def telegram_webhook(token: str, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
     data = await request.json()
     update = Update.de_json(data, _tg_app.bot)
-    # Fire-and-forget: process in background, return 200 immediately to Telegram
-    asyncio.create_task(_tg_app.process_update(update))
+    await _tg_app.process_update(update)
     return Response(content="ok")
 
 

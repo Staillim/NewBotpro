@@ -1,5 +1,6 @@
 """FastAPI catalog API + Telegram bot via webhook (no polling conflict)."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,7 @@ from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
 )
@@ -46,25 +48,32 @@ _tg_app = None
 
 
 def _build_tg_application():
-    app = ApplicationBuilder().token(settings.BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("admin", admin_menu))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("activar", activate_plan_command))
-    app.add_handler(CommandHandler("cancelar", cancel_plan_command))
-    app.add_handler(CommandHandler("ban", ban_command))
-    app.add_handler(CommandHandler("unban", unban_command))
-    app.add_handler(CommandHandler("indexar", index_command))
-    app.add_handler(CommandHandler("indexar_manual", index_manual_command))
-    app.add_handler(CommandHandler("indexar_serie", index_series_command))
-    app.add_handler(CommandHandler("indexar_episodios", index_episodes_command))
-    app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(
+    # updater=None = webhook mode, no background polling thread
+    tg = ApplicationBuilder().token(settings.BOT_TOKEN).updater(None).build()
+    tg.add_handler(CommandHandler("start", start_command))
+    tg.add_handler(CommandHandler("admin", admin_menu))
+    tg.add_handler(CommandHandler("stats", stats_command))
+    tg.add_handler(CommandHandler("activar", activate_plan_command))
+    tg.add_handler(CommandHandler("cancelar", cancel_plan_command))
+    tg.add_handler(CommandHandler("ban", ban_command))
+    tg.add_handler(CommandHandler("unban", unban_command))
+    tg.add_handler(CommandHandler("indexar", index_command))
+    tg.add_handler(CommandHandler("indexar_manual", index_manual_command))
+    tg.add_handler(CommandHandler("indexar_serie", index_series_command))
+    tg.add_handler(CommandHandler("indexar_episodios", index_episodes_command))
+    tg.add_handler(CommandHandler("broadcast", broadcast_command))
+    tg.add_handler(CallbackQueryHandler(callback_handler))
+    tg.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_search_query,
     ))
-    return app
+    tg.add_error_handler(_ptb_error_handler)
+    return tg
+
+
+async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Log ALL exceptions raised in handlers so they are visible in Render logs."""
+    logger.error("PTB handler error", exc_info=context.error)
 
 
 @asynccontextmanager
@@ -124,8 +133,16 @@ async def telegram_webhook(token: str, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
     data = await request.json()
     update = Update.de_json(data, _tg_app.bot)
-    await _tg_app.update_queue.put(update)
+    # Fire-and-forget: process in background, return 200 immediately to Telegram
+    asyncio.create_task(_tg_app.process_update(update))
     return Response(content="ok")
+
+
+# ── Health check (Render sends HEAD /) ────────────────────────────────────────
+
+@app.head("/")
+async def health_head():
+    return Response()
 
 
 # ── Config ────────────────────────────────────────────────────────────────────

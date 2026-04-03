@@ -44,24 +44,18 @@ logger = logging.getLogger(__name__)
 WEBAPP_DIR = Path(__file__).parent.parent / "webapp"
 _PAGE_SIZE = 12
 
-# Global bot application
+# ── Global state ──────────────────────────────────────────────────────────────
 _tg_app = None
-# Background consumer task
-_consumer_task = None
+# Strong references to running tasks so GC doesn't kill them
+_tasks: set[asyncio.Task] = set()
 
 
 def _build_tg_application():
-    """Build PTB Application with all handlers.
-    
-    Key settings:
-    - updater=None: we receive updates via webhook, no polling
-    - concurrent_updates=256: allow many handlers to run in parallel
-    """
     tg = (
         ApplicationBuilder()
         .token(settings.BOT_TOKEN)
         .updater(None)
-        .concurrent_updates(256)
+        .concurrent_updates(True)
         .read_timeout(30)
         .write_timeout(30)
         .connect_timeout(15)
@@ -93,56 +87,30 @@ def _build_tg_application():
 
 
 async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Log ALL handler exceptions to Render logs."""
     logger.error("PTB handler error: %s", context.error, exc_info=context.error)
 
 
-async def _consume_updates():
-    """Continuously consume updates from PTB's internal queue.
-    
-    This is the correct pattern for PTB v21 webhook mode:
-    - Webhook endpoint puts raw updates into update_queue
-    - This consumer pulls them and calls process_update()
-    - PTB handles concurrency internally via concurrent_updates
-    - If process_update raises, we log it and keep consuming (never die)
-    """
-    while True:
-        try:
-            update = await _tg_app.update_queue.get()
-            if update is None:
-                logger.info("Consumer received shutdown signal")
-                break
-            try:
-                await _tg_app.process_update(update)
-            except Exception:
-                logger.exception("Error processing update_id=%s", getattr(update, 'update_id', '?'))
-        except asyncio.CancelledError:
-            logger.info("Consumer task cancelled")
-            break
-        except Exception:
-            logger.exception("Fatal consumer error, restarting loop")
-            await asyncio.sleep(0.5)
+async def _safe_process(update: Update) -> None:
+    """Process one update with full error protection."""
+    try:
+        await _tg_app.process_update(update)
+    except Exception:
+        logger.exception("process_update failed for update_id=%s", update.update_id)
 
 
 @asynccontextmanager
 async def lifespan(fastapi_app: FastAPI):
-    """Startup: init DB + start bot webhook. Shutdown: clean up."""
-    global _tg_app, _consumer_task
+    global _tg_app
 
-    # 1. Database
     logger.info("Initializing database...")
     await db.init_db()
     logger.info("Database ready.")
 
-    # 2. Build PTB application
     _tg_app = _build_tg_application()
     await _tg_app.initialize()
     await _tg_app.start()
+    logger.info("PTB Application started.")
 
-    # 3. Start the update consumer (processes updates from the queue)
-    _consumer_task = asyncio.create_task(_consume_updates())
-
-    # 4. Register webhook with Telegram
     if settings.WEBAPP_URL:
         webhook_url = f"{settings.WEBAPP_URL.rstrip('/')}/webhook/{settings.BOT_TOKEN}"
         await _tg_app.bot.set_webhook(
@@ -159,17 +127,13 @@ async def lifespan(fastapi_app: FastAPI):
     else:
         logger.error("WEBAPP_URL not set! Bot cannot receive messages.")
 
-    yield  # ─── app is running ───
+    yield
 
-    # Shutdown: signal consumer to stop, then clean up PTB
-    await _tg_app.update_queue.put(None)
-    _consumer_task.cancel()
-    try:
-        await _consumer_task
-    except asyncio.CancelledError:
-        pass
     if settings.WEBAPP_URL:
-        await _tg_app.bot.delete_webhook()
+        try:
+            await _tg_app.bot.delete_webhook()
+        except Exception:
+            pass
     await _tg_app.stop()
     await _tg_app.shutdown()
     logger.info("Bot stopped.")
@@ -187,20 +151,12 @@ app.add_middleware(
 )
 
 
-# ── Telegram webhook endpoint ─────────────────────────────────────────────────
+# ── Webhook ───────────────────────────────────────────────────────────────────
 
 @app.post("/webhook/{token}")
 async def telegram_webhook(token: str, request: Request):
-    """Receive Telegram update, enqueue it, return 200 instantly.
-    
-    This is extremely fast (<5ms):
-    - Parse JSON
-    - Put into asyncio.Queue (non-blocking)
-    - Return "ok" immediately
-    
-    The _consume_updates task picks it up and processes it asynchronously.
-    Telegram NEVER retries because we always return 200 fast.
-    """
+    """Process update via fire-and-forget task with strong reference.
+    Returns 200 in <5ms. Handler runs in background."""
     if token != settings.BOT_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
     if _tg_app is None:
@@ -208,13 +164,16 @@ async def telegram_webhook(token: str, request: Request):
     try:
         data = await request.json()
         update = Update.de_json(data, _tg_app.bot)
-        await _tg_app.update_queue.put(update)
+        # Create task + keep strong ref so GC cannot collect it
+        task = asyncio.create_task(_safe_process(update))
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
     except Exception:
-        logger.exception("Failed to enqueue webhook update")
+        logger.exception("Webhook parse error")
     return Response(content="ok")
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.head("/")
 async def health_head():
@@ -222,15 +181,9 @@ async def health_head():
 
 @app.get("/health")
 async def health_check():
-    """Detailed health endpoint for debugging."""
-    ready = _tg_app is not None
-    consumer_alive = _consumer_task is not None and not _consumer_task.done()
-    queue_size = _tg_app.update_queue.qsize() if ready else -1
     return {
-        "status": "ok" if (ready and consumer_alive) else "degraded",
-        "bot_ready": ready,
-        "consumer_alive": consumer_alive,
-        "queue_size": queue_size,
+        "status": "ok" if _tg_app else "starting",
+        "active_tasks": len(_tasks),
     }
 
 

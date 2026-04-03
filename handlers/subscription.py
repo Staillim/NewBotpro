@@ -14,22 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 PLANS_TEXT = """
-💎 *Planes CineStelar Premium*
+💎 *Planes TodoCineHD Premium*
 
 Elige el plan que mejor se adapte a ti:
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💫 *Plan Lite* — $3 USD/mes
+💫 *Plan Lite* — {lite_stars} ⭐ / mes
 ├ ✅ Catálogo completo (Pelis, Series, Anime)
-├ ✅ Streaming ilimitado
-├ ✅ Sin anuncios
+├ ✅ Streaming sin anuncios
 ├ ✅ Búsqueda inteligente
 └ ❌ No puedes guardar contenido
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-👑 *Plan Pro* — $5 USD/mes
+👑 *Plan Pro* — {pro_stars} ⭐ / mes
 ├ ✅ Todo lo del Plan Lite
 ├ ✅ Guardar contenido en tu dispositivo
 ├ ✅ Acceso prioritario a estrenos
@@ -37,8 +36,7 @@ Elige el plan que mejor se adapte a ti:
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-📩 Para suscribirte, contacta al administrador
-o realiza el pago y envía tu comprobante.
+⭐ El pago se realiza con *Telegram Stars* directamente desde la app.
 """
 
 
@@ -48,23 +46,34 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         await query.answer()
 
+    text = PLANS_TEXT.format(
+        lite_stars=settings.PLAN_LITE_STARS,
+        pro_stars=settings.PLAN_PRO_STARS,
+    )
+
     buttons = [
         [
-            InlineKeyboardButton("💫 Lite — $3/mes", callback_data="plans:lite"),
-            InlineKeyboardButton("👑 Pro — $5/mes", callback_data="plans:pro"),
+            InlineKeyboardButton(
+                f"💫 Lite — {settings.PLAN_LITE_STARS} ⭐",
+                callback_data="payment:lite",
+            ),
+            InlineKeyboardButton(
+                f"👑 Pro — {settings.PLAN_PRO_STARS} ⭐",
+                callback_data="payment:pro",
+            ),
         ],
         [InlineKeyboardButton("🏠 Menú Principal", callback_data="menu:main")],
     ]
 
     if query:
         await query.edit_message_text(
-            PLANS_TEXT,
+            text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="Markdown",
         )
     else:
         await update.message.reply_text(
-            PLANS_TEXT,
+            text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="Markdown",
         )

@@ -48,6 +48,13 @@ class Settings:
     PLAN_LITE_PRICE: float = 3.0  # USD – streaming only
     PLAN_PRO_PRICE: float = 5.0   # USD – streaming + download
 
+    # Telegram Stars prices (XTR) — 1 star ≈ $0.02 USD
+    PLAN_LITE_STARS: int = int(os.getenv("PLAN_LITE_STARS", "150"))   # ~$3
+    PLAN_PRO_STARS: int  = int(os.getenv("PLAN_PRO_STARS",  "250"))   # ~$5
+
+    # Subscription duration in days per payment
+    PLAN_DURATION_DAYS: int = 30
+
     # Pagination
     CATALOG_PAGE_SIZE: int = 8
     SEARCH_RESULTS_LIMIT: int = 10

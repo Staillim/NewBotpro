@@ -16,6 +16,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -38,6 +39,7 @@ from handlers.admin import (
 from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
 from handlers.intake import handle_channel_post
+from handlers.payment import pre_checkout_handler, successful_payment_handler
 from handlers.search import handle_search_query
 from handlers.start import start_command
 
@@ -84,7 +86,12 @@ def _build_tg_application():
     tg.add_handler(CommandHandler("indexar_episodios", index_episodes_command))
     tg.add_handler(CommandHandler("broadcast", broadcast_command))
     tg.add_handler(CommandHandler("borrar", delete_command))
+    tg.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     tg.add_handler(CallbackQueryHandler(callback_handler))
+    tg.add_handler(MessageHandler(
+        filters.SUCCESSFUL_PAYMENT,
+        successful_payment_handler,
+    ))
     tg.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_search_query,

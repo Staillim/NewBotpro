@@ -22,6 +22,7 @@ from handlers.catalog import (
     toggle_favorite,
 )
 from handlers.subscription import show_plans, select_plan, show_account
+from handlers.payment import send_invoice_lite, send_invoice_pro
 from handlers.admin import (
     stats_command,
     activate_plan_start,
@@ -174,6 +175,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plan_key = parts[1]
             if plan_key in ("lite", "pro"):
                 await select_plan(update, context, plan_key)
+
+        # ── Payment (Telegram Stars) ───────────────────────────────
+        elif data == "payment:lite":
+            await send_invoice_lite(update, context)
+
+        elif data == "payment:pro":
+            await send_invoice_pro(update, context)
 
         # ── Account ───────────────────────────────────────────────
         elif data == "account:info":

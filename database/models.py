@@ -1,4 +1,4 @@
-"""SQLAlchemy models for CineStelar Premium Bot."""
+﻿"""SQLAlchemy models for CineStelar Premium Bot."""
 
 from datetime import datetime, timezone
 from enum import Enum as PyEnum
@@ -23,7 +23,7 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
-# ── Enums ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Enums â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class ContentType(str, PyEnum):
@@ -34,8 +34,8 @@ class ContentType(str, PyEnum):
 
 class PlanType(str, PyEnum):
     NONE = "none"
-    LITE = "lite"  # $3 – streaming only
-    PRO = "pro"    # $5 – streaming + download
+    LITE = "lite"  # $3 â€“ streaming only
+    PRO = "pro"    # $5 â€“ streaming + download
 
 
 class SubStatus(str, PyEnum):
@@ -44,7 +44,7 @@ class SubStatus(str, PyEnum):
     CANCELLED = "cancelled"
 
 
-# ── Users ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class User(Base):
@@ -67,8 +67,8 @@ class User(Base):
     # Referral
     referred_by = Column(BigInteger, nullable=True)
 
-    joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    last_active = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    joined_at = Column(DateTime, default=lambda: datetime.utcnow())
+    last_active = Column(DateTime, default=lambda: datetime.utcnow())
 
     # Relationships
     subscriptions = relationship("Subscription", back_populates="user", lazy="selectin")
@@ -77,7 +77,7 @@ class User(Base):
     navigation = relationship("UserNavigationState", back_populates="user", uselist=False, lazy="selectin")
 
 
-# ── Subscriptions ─────────────────────────────────────────────────────────────
+# â”€â”€ Subscriptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class Subscription(Base):
@@ -89,14 +89,14 @@ class Subscription(Base):
     status = Column(Enum(SubStatus), default=SubStatus.ACTIVE)
     payment_ref = Column(String(255), nullable=True)  # external payment reference
     amount_usd = Column(Float, nullable=True)
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, default=lambda: datetime.utcnow())
     expires_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="subscriptions")
 
 
-# ── Content: Movies ───────────────────────────────────────────────────────────
+# â”€â”€ Content: Movies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class Movie(Base):
@@ -119,7 +119,7 @@ class Movie(Base):
     tmdb_id = Column(Integer, nullable=True, unique=True)
 
     raw_caption = Column(Text, nullable=True)
-    indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    indexed_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     __table_args__ = (
         Index("ix_movies_indexed_at", "indexed_at"),
@@ -127,7 +127,7 @@ class Movie(Base):
     )
 
 
-# ── Content: TV Shows (Series & Anime share this) ────────────────────────────
+# â”€â”€ Content: TV Shows (Series & Anime share this) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TvShow(Base):
@@ -148,7 +148,7 @@ class TvShow(Base):
     status = Column(String(50), nullable=True)
     detected_pattern = Column(String(100), nullable=True)
 
-    indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    indexed_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     __table_args__ = (
         Index("ix_shows_content_type", "content_type"),
@@ -177,12 +177,12 @@ class Episode(Base):
     still_path = Column(String(500), nullable=True)
 
     raw_caption = Column(Text, nullable=True)
-    indexed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    indexed_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     tv_show = relationship("TvShow", back_populates="episodes")
 
 
-# ── User Activity ─────────────────────────────────────────────────────────────
+# â”€â”€ User Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class UserActivity(Base):
@@ -193,12 +193,12 @@ class UserActivity(Base):
     action_type = Column(String(50), nullable=False)  # search, watch_movie, watch_episode, subscribe
     content_id = Column(Integer, nullable=True)
     content_type = Column(String(20), nullable=True)  # movie, series, anime
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     user = relationship("User", back_populates="activities")
 
 
-# ── Favorites ─────────────────────────────────────────────────────────────────
+# â”€â”€ Favorites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class Favorite(Base):
@@ -208,7 +208,7 @@ class Favorite(Base):
     user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False, index=True)
     content_type = Column(Enum(ContentType), nullable=False)
     content_id = Column(Integer, nullable=False)  # movie.id or tv_show.id
-    added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    added_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     __table_args__ = (
         UniqueConstraint("user_id", "content_type", "content_id", name="uq_user_fav"),
@@ -217,7 +217,7 @@ class Favorite(Base):
     user = relationship("User", back_populates="favorites")
 
 
-# ── Search Log ────────────────────────────────────────────────────────────────
+# â”€â”€ Search Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class SearchLog(Base):
@@ -227,10 +227,10 @@ class SearchLog(Base):
     user_id = Column(BigInteger, nullable=False, index=True)
     query = Column(String(500), nullable=False)
     results_count = Column(Integer, default=0)
-    searched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    searched_at = Column(DateTime, default=lambda: datetime.utcnow())
 
 
-# ── Navigation State ─────────────────────────────────────────────────────────
+# â”€â”€ Navigation State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class UserNavigationState(Base):
@@ -241,12 +241,12 @@ class UserNavigationState(Base):
     selected_show_id = Column(Integer, ForeignKey("tv_shows.id"), nullable=True)
     search_query = Column(String(500), nullable=True)
     page = Column(Integer, default=0)
-    last_interaction = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_interaction = Column(DateTime, default=lambda: datetime.utcnow())
 
     user = relationship("User", back_populates="navigation")
 
 
-# ── Bot Config ────────────────────────────────────────────────────────────────
+# â”€â”€ Bot Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class BotConfig(Base):
@@ -255,4 +255,4 @@ class BotConfig(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(100), unique=True, nullable=False)
     value = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.utcnow())

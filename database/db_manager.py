@@ -1,4 +1,4 @@
-"""Database manager – async CRUD operations."""
+﻿"""Database manager â€“ async CRUD operations."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -27,11 +27,11 @@ from config.settings import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    pool_size=10,          # máximo 10 conexiones abiertas
+    pool_size=10,          # mÃ¡ximo 10 conexiones abiertas
     max_overflow=20,       # hasta 20 extras en picos (total 30 max)
     pool_timeout=30,       # espera 30s antes de dar error
     pool_recycle=1800,     # recicla conexiones cada 30 min
-    pool_pre_ping=True,    # verifica conexión antes de usarla
+    pool_pre_ping=True,    # verifica conexiÃ³n antes de usarla
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -41,13 +41,13 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.utcnow()
 
 
-# ── Users ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def get_or_create_user(user_id: int, username: str = None,
                               first_name: str = None, last_name: str = None,
@@ -122,7 +122,7 @@ async def get_active_subscribers() -> int:
         return result.scalar() or 0
 
 
-# ── Subscriptions ─────────────────────────────────────────────────────────────
+# â”€â”€ Subscriptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def activate_plan(user_id: int, plan: PlanType, days: int = 30,
                          payment_ref: str = None) -> Subscription:
@@ -161,8 +161,8 @@ async def check_subscription(user_id: int) -> tuple[bool, PlanType]:
     user = await get_user(user_id)
     if not user or user.plan == PlanType.NONE:
         return False, PlanType.NONE
-    if user.plan_expires_at and user.plan_expires_at.replace(tzinfo=timezone.utc) < _now():
-        # Expired – update
+    if user.plan_expires_at and user.plan_expires_at < _now():
+        # Expired â€“ update
         async with async_session() as s:
             await s.execute(
                 update(User).where(User.user_id == user_id).values(
@@ -185,7 +185,7 @@ async def cancel_plan(user_id: int):
         await s.commit()
 
 
-# ── Movies ────────────────────────────────────────────────────────────────────
+# â”€â”€ Movies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_movie(**kwargs) -> Movie:
     async with async_session() as s:
@@ -233,7 +233,7 @@ async def get_total_movies() -> int:
         return r.scalar() or 0
 
 
-# ── TV Shows / Anime ─────────────────────────────────────────────────────────
+# â”€â”€ TV Shows / Anime â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_tv_show(**kwargs) -> TvShow:
     async with async_session() as s:
@@ -285,7 +285,7 @@ async def get_total_shows(content_type: ContentType) -> int:
         return r.scalar() or 0
 
 
-# ── Episodes ──────────────────────────────────────────────────────────────────
+# â”€â”€ Episodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_episode(**kwargs) -> Episode:
     async with async_session() as s:
@@ -323,7 +323,7 @@ async def get_episode(episode_id: int) -> Optional[Episode]:
         return result.scalar_one_or_none()
 
 
-# ── Favorites ─────────────────────────────────────────────────────────────────
+# â”€â”€ Favorites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_favorite(user_id: int, content_type: ContentType, content_id: int):
     async with async_session() as s:
@@ -355,7 +355,7 @@ async def get_favorites(user_id: int) -> list[Favorite]:
         return list(result.scalars().all())
 
 
-# ── Activity ──────────────────────────────────────────────────────────────────
+# â”€â”€ Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def log_activity(user_id: int, action_type: str, content_id: int = None,
                         content_type: str = None):
@@ -370,7 +370,7 @@ async def log_activity(user_id: int, action_type: str, content_id: int = None,
         await s.commit()
 
 
-# ── Search Log ────────────────────────────────────────────────────────────────
+# â”€â”€ Search Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def log_search(user_id: int, query: str, results_count: int):
     async with async_session() as s:
@@ -378,7 +378,7 @@ async def log_search(user_id: int, query: str, results_count: int):
         await s.commit()
 
 
-# ── Bot Config ────────────────────────────────────────────────────────────────
+# â”€â”€ Bot Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def get_config(key: str, default: str = None) -> Optional[str]:
     async with async_session() as s:

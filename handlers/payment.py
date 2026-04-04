@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Payload prefixes stored in the invoice so successful_payment knows what to activate
 _PAYLOAD_LITE = "plan_lite_30d"
 _PAYLOAD_PRO  = "plan_pro_30d"
+_PAYLOAD_DONATE = "donate_stars"
 
 
 async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,9 +64,13 @@ async def send_invoice_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Approve all pre-checkout queries (Telegram requires a response within 10s)."""
     query = update.pre_checkout_query
-    if query.invoice_payload not in (_PAYLOAD_LITE, _PAYLOAD_PRO):
+    payload = query.invoice_payload
+    logger.info("PRE CHECKOUT received — payload=%s user=%s", payload, query.from_user.id)
+    if payload not in (_PAYLOAD_LITE, _PAYLOAD_PRO) and not payload.startswith(_PAYLOAD_DONATE):
+        logger.warning("PRE CHECKOUT REJECTED — unknown payload: %s", payload)
         await query.answer(ok=False, error_message="Pago no reconocido.")
         return
+    logger.info("PRE CHECKOUT OK — approved")
     await query.answer(ok=True)
 
 
@@ -74,6 +79,34 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     payment = update.message.successful_payment
     user_id = update.effective_user.id
     payload = payment.invoice_payload
+    logger.info("PAGO CONFIRMADO — user=%s payload=%s amount=%s charge=%s",
+                user_id, payload, payment.total_amount, payment.telegram_payment_charge_id)
+
+    # ── Donation ──
+    if payload.startswith(_PAYLOAD_DONATE):
+        user = update.effective_user
+        uname = f"@{user.username}" if user.username else user.first_name
+        stars = payment.total_amount
+        await update.message.reply_text(
+            f"❤️ *¡Gracias por tu donación de {stars} ⭐!*\n\n"
+            "Tu apoyo nos ayuda a mantener CineStelar funcionando. 🎬",
+            parse_mode="Markdown",
+        )
+        for admin_id in settings.ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=(
+                        f"☕ *Nueva donación*\n\n"
+                        f"👤 {uname} (`{user_id}`)\n"
+                        f"⭐ {stars} estrellas\n"
+                        f"💳 `{payment.telegram_payment_charge_id}`"
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                pass
+        return
 
     if payload == _PAYLOAD_LITE:
         plan = PlanType.LITE
@@ -154,3 +187,43 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             f"`{payment.telegram_payment_charge_id}`",
             parse_mode="Markdown",
         )
+
+
+# ── Donations ─────────────────────────────────────────────────────────────────
+
+DONATE_AMOUNTS = [5, 10, 25, 50, 100]
+
+
+async def donate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show donation options with preset Star amounts."""
+    buttons = [
+        [InlineKeyboardButton(f"⭐ {amt} estrellas", callback_data=f"donate:{amt}")]
+        for amt in DONATE_AMOUNTS
+    ]
+    await update.message.reply_text(
+        "☕ *¡Apoya a CineStelar!*\n\n"
+        "Tu donación nos ayuda a mantener el catálogo, "
+        "los servidores y seguir agregando contenido.\n\n"
+        "Elige la cantidad de estrellas que deseas donar:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def send_donate_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a Stars invoice for a donation amount."""
+    query = update.callback_query
+    await query.answer()
+
+    amount = int(query.data.split(":")[1])
+    if amount not in DONATE_AMOUNTS:
+        return
+
+    await context.bot.send_invoice(
+        chat_id=query.message.chat_id,
+        title=f"☕ Donación — {amount} ⭐",
+        description="¡Gracias por apoyar a CineStelar! Tu donación nos ayuda a crecer.",
+        payload=f"{_PAYLOAD_DONATE}_{amount}",
+        currency="XTR",
+        prices=[LabeledPrice(f"Donación {amount} estrellas", amount)],
+    )

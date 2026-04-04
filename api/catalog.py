@@ -41,7 +41,7 @@ from handlers.admin import (
 from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
 from handlers.intake import handle_channel_post
-from handlers.payment import pre_checkout_handler, successful_payment_handler
+from handlers.payment import donate_command, pre_checkout_handler, send_donate_invoice, successful_payment_handler
 from handlers.group_search import handle_group_message, handle_my_chat_member
 from handlers.search import handle_search_query
 from handlers.start import start_command
@@ -90,7 +90,9 @@ def _build_tg_application():
     tg.add_handler(CommandHandler("broadcast", broadcast_command))
     tg.add_handler(CommandHandler("borrar", delete_command))
     tg.add_handler(CommandHandler("limpiar", clear_content_command))
+    tg.add_handler(CommandHandler("donar", donate_command))
     tg.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
+    tg.add_handler(CallbackQueryHandler(send_donate_invoice, pattern=r"^donate:\d+$"))
     tg.add_handler(CallbackQueryHandler(callback_handler))
     tg.add_handler(MessageHandler(
         filters.SUCCESSFUL_PAYMENT,

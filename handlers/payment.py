@@ -187,6 +187,30 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
                 )
             except Exception:
                 pass
+
+        # Notify groups
+        groups = await db.get_active_groups()
+        group_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "☕ Donar también",
+                url=f"https://t.me/{settings.BOT_USERNAME}?start=donar",
+            )
+        ]])
+        group_text = (
+            f"☕ *¡Gracias {uname} por apoyar a CineStelar!*\n\n"
+            f"Donó *{stars} ⭐* para mantener el catálogo y los servidores. "
+            f"¡Cada estrella cuenta! 🙌"
+        )
+        for chat_id in groups:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=group_text,
+                    parse_mode="Markdown",
+                    reply_markup=group_kb,
+                )
+            except Exception as g_exc:
+                logger.warning("Group donation notify failed for %s: %s", chat_id, g_exc)
         return
 
     if payload == _PAYLOAD_LITE:

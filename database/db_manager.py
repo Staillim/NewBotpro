@@ -305,6 +305,21 @@ async def get_total_movies() -> int:
         return r.scalar() or 0
 
 
+async def get_all_movies() -> list[Movie]:
+    """Return all movies (for backfill)."""
+    async with async_session() as s:
+        result = await s.execute(select(Movie))
+        return list(result.scalars().all())
+
+
+async def update_movie_genres(movie_id: int, genres: str) -> None:
+    async with async_session() as s:
+        await s.execute(
+            update(Movie).where(Movie.id == movie_id).values(genres=genres)
+        )
+        await s.commit()
+
+
 async def delete_movie(movie_id: int) -> bool:
     """Delete a movie by ID. Returns True if it existed."""
     async with async_session() as s:
@@ -395,6 +410,21 @@ async def get_total_shows(content_type: ContentType) -> int:
             )
         )
         return r.scalar() or 0
+
+
+async def get_all_shows() -> list[TvShow]:
+    """Return all shows (for backfill)."""
+    async with async_session() as s:
+        result = await s.execute(select(TvShow))
+        return list(result.scalars().all())
+
+
+async def update_show_genres(show_id: int, genres: str) -> None:
+    async with async_session() as s:
+        await s.execute(
+            update(TvShow).where(TvShow.id == show_id).values(genres=genres)
+        )
+        await s.commit()
 
 
 async def delete_show(show_id: int) -> bool:
@@ -602,10 +632,13 @@ async def get_active_groups() -> list[int]:
 async def get_all_genres() -> list[str]:
     """Return distinct genre names from movies + shows, sorted."""
     async with async_session() as s:
-        mov_r = await s.execute(select(Movie.genres).where(Movie.genres.isnot(None)))
+        mov_r = await s.execute(
+            select(Movie.genres).where(Movie.genres.isnot(None), Movie.genres != "")
+        )
         show_r = await s.execute(
             select(TvShow.genres).where(
-                TvShow.genres.isnot(None), TvShow.published == True  # noqa: E712
+                TvShow.genres.isnot(None), TvShow.genres != "",
+                TvShow.published == True  # noqa: E712
             )
         )
         genre_set: set[str] = set()

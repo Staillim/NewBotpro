@@ -440,6 +440,42 @@ def _show(s, detail: bool = False) -> dict:
     return d
 
 
+# ── Backfill genres ───────────────────────────────────────────────────────────
+
+@app.post("/api/backfill-genres")
+async def backfill_genres():
+    """Fetch genres from TMDB for items with empty/null genres. Admin-only."""
+    from utils import tmdb_api
+
+    updated = 0
+
+    # Movies
+    all_movies = await db.get_all_movies()
+    for m in all_movies:
+        if m.genres and m.genres.strip():
+            continue
+        if not m.tmdb_id:
+            continue
+        details = await tmdb_api.get_movie_details(m.tmdb_id)
+        if details and details.get("genres"):
+            await db.update_movie_genres(m.id, details["genres"])
+            updated += 1
+
+    # Shows
+    all_shows = await db.get_all_shows()
+    for s in all_shows:
+        if s.genres and s.genres.strip():
+            continue
+        if not s.tmdb_id:
+            continue
+        details = await tmdb_api.get_tv_details(s.tmdb_id)
+        if details and details.get("genres"):
+            await db.update_show_genres(s.id, details["genres"])
+            updated += 1
+
+    return {"updated": updated}
+
+
 # ── Ad system ─────────────────────────────────────────────────────────────────
 
 @app.get("/ad")

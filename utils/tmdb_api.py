@@ -12,6 +12,26 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p"
 
+# Cached genre maps: {genre_id: genre_name}
+_movie_genre_map: dict[int, str] = {}
+_tv_genre_map: dict[int, str] = {}
+
+
+async def _ensure_genre_maps() -> None:
+    """Fetch TMDB genre lists once and cache them."""
+    global _movie_genre_map, _tv_genre_map
+    if _movie_genre_map and _tv_genre_map:
+        return
+    try:
+        mov = await _get("/genre/movie/list")
+        if mov:
+            _movie_genre_map = {g["id"]: g["name"] for g in mov.get("genres", [])}
+        tv = await _get("/genre/tv/list")
+        if tv:
+            _tv_genre_map = {g["id"]: g["name"] for g in tv.get("genres", [])}
+    except Exception as e:
+        logger.warning("Failed to fetch genre maps: %s", e)
+
 
 async def _get(endpoint: str, params: dict = None) -> Optional[dict]:
     params = params or {}
@@ -30,6 +50,7 @@ async def _get(endpoint: str, params: dict = None) -> Optional[dict]:
 # ── Movies ────────────────────────────────────────────────────────────────────
 
 async def search_movie(query: str, year: str = None) -> list[dict]:
+    await _ensure_genre_maps()
     params = {"query": query}
     if year:
         params["year"] = year
@@ -48,6 +69,15 @@ async def get_movie_details(tmdb_id: int) -> Optional[dict]:
 
 
 def _parse_movie(item: dict) -> dict:
+    # Resolve genres from "genres" (detail) or "genre_ids" (search)
+    if "genres" in item:
+        genres_str = ", ".join(g["name"] for g in item["genres"])
+    elif "genre_ids" in item and _movie_genre_map:
+        genres_str = ", ".join(
+            _movie_genre_map[gid] for gid in item["genre_ids"] if gid in _movie_genre_map
+        )
+    else:
+        genres_str = ""
     return {
         "tmdb_id": item.get("id"),
         "title": item.get("title", ""),
@@ -58,13 +88,14 @@ def _parse_movie(item: dict) -> dict:
         "backdrop_url": f"{IMG_BASE}/w1280{item['backdrop_path']}" if item.get("backdrop_path") else None,
         "vote_average": item.get("vote_average", 0),
         "runtime": item.get("runtime"),
-        "genres": ", ".join(g["name"] for g in item.get("genres", [])) if "genres" in item else "",
+        "genres": genres_str,
     }
 
 
 # ── TV Shows / Anime ─────────────────────────────────────────────────────────
 
 async def search_tv(query: str) -> list[dict]:
+    await _ensure_genre_maps()
     data = await _get("/search/tv", {"query": query})
     if not data:
         return []
@@ -92,6 +123,17 @@ async def get_episode_details(tmdb_id: int, season: int, episode: int) -> Option
     }
 
 
+def _resolve_tv_genres(item: dict) -> str:
+    """Resolve genres from 'genres' (detail) or 'genre_ids' (search)."""
+    if "genres" in item:
+        return ", ".join(g["name"] for g in item["genres"])
+    if "genre_ids" in item and _tv_genre_map:
+        return ", ".join(
+            _tv_genre_map[gid] for gid in item["genre_ids"] if gid in _tv_genre_map
+        )
+    return ""
+
+
 def _parse_tv(item: dict) -> dict:
     first_air = (item.get("first_air_date") or "")[:4]
     last_air = (item.get("last_air_date") or "")[:4]
@@ -105,7 +147,7 @@ def _parse_tv(item: dict) -> dict:
         "poster_url": f"{IMG_BASE}/w500{item['poster_path']}" if item.get("poster_path") else None,
         "backdrop_url": f"{IMG_BASE}/w1280{item['backdrop_path']}" if item.get("backdrop_path") else None,
         "vote_average": item.get("vote_average", 0),
-        "genres": ", ".join(g["name"] for g in item.get("genres", [])) if "genres" in item else "",
+        "genres": _resolve_tv_genres(item),
         "number_of_seasons": item.get("number_of_seasons"),
         "status": item.get("status", ""),
     }

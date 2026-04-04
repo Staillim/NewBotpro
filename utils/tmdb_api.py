@@ -55,8 +55,8 @@ async def search_movie(query: str, year: str = None) -> list[dict]:
     if year:
         params["year"] = year
     data = await _get("/search/movie", params)
-    if not data:
-        return []
+    if data is None:
+        raise RuntimeError(f"TMDB network error searching movie '{query}'")
     results = []
     for item in data.get("results", [])[:5]:
         results.append(_parse_movie(item))

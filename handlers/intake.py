@@ -503,16 +503,23 @@ async def _do_index_movie(file_id: str, post: Message, context) -> None:
 
     # Search TMDB (small delay avoids hammering the API back-to-back)
     tmdb_data: dict = {}
+    tmdb_request_failed = False
     if clean:
         try:
             results = await tmdb_api.search_movie(clean, year)
             if results:
                 tmdb_data = results[0]
+        except RuntimeError as exc:
+            # Network/timeout failure — index without metadata, don't send to pending
+            logger.warning("TMDB unavailable for '%s': %s", clean, exc)
+            tmdb_request_failed = True
         except Exception as exc:
             logger.warning("TMDB movie search failed for '%s': %s", clean, exc)
+            tmdb_request_failed = True
 
     # ── Not found in TMDB → ask admin to skip or retry with another name ──────
-    if not tmdb_data:
+    # Only enter this flow when TMDB responded but returned no results
+    if not tmdb_data and not tmdb_request_failed:
         msg_key = post.message_id
         _pending_movies[msg_key] = {
             "file_id": file_id,

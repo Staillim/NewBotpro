@@ -440,6 +440,20 @@ async def _publish_movie(
     title = tmdb_data.get("title", fallback_title or "Sin título")
     year_val = tmdb_data.get("year", year)
 
+    # Check first if this file_id or tmdb_id is already in DB
+    # to avoid re-distributing the video if admin re-forwards
+    tmdb_id_check = tmdb_data.get("tmdb_id")
+    pre_existing = None
+    if tmdb_id_check:
+        pre_existing = await db.get_movie_by_tmdb(tmdb_id_check)
+    if pre_existing is None:
+        pre_existing = await db.get_movie_by_file(file_id)
+
+    if pre_existing:
+        await _notify(context, f"♻️ *{title}* ya estaba indexada, omitiendo reenvío al canal.")
+        logger.info("Movie already indexed (id=%s), skipping channel send: %s", pre_existing.id, title)
+        return
+
     channel_msg_id = None
     caption_text = f"🎬 {title} ({year_val})" if year_val else f"🎬 {title}"
 
@@ -463,7 +477,7 @@ async def _publish_movie(
             logger.error("Failed to distribute movie '%s': %s", title, exc)
             break
 
-    await db.add_movie(
+    movie, created = await db.add_movie(
         file_id=file_id,
         message_id=orig_msg_id,
         channel_message_id=channel_msg_id,
@@ -483,8 +497,7 @@ async def _publish_movie(
     await _notify(context, f"✅ *{title}* {'(' + str(year_val) + ')' if year_val else ''} indexada.")
     logger.info("Movie indexed: %s (msg_id=%s)", title, orig_msg_id)
 
-    movie = (await db.search_movies(title, limit=1) or [None])[0]
-    if movie:
+    if created and movie:
         await _notify_groups(
             context,
             title=movie.title,

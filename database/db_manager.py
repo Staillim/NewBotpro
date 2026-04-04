@@ -261,8 +261,10 @@ async def cancel_plan(user_id: int):
 
 # â”€â”€ Movies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async def add_movie(**kwargs) -> Movie:
-    """Insert movie, or return existing row if tmdb_id already exists."""
+async def add_movie(**kwargs) -> tuple["Movie", bool]:
+    """Insert movie, or return existing row if tmdb_id already exists.
+    Returns (movie, created) where created=False means it already existed.
+    """
     async with async_session() as s:
         # If TMDB match exists, return it instead of inserting a duplicate
         tmdb_id = kwargs.get("tmdb_id")
@@ -273,18 +275,40 @@ async def add_movie(**kwargs) -> Movie:
             row = existing.scalar_one_or_none()
             if row:
                 logger.info("add_movie: tmdb_id=%s already exists (id=%s), skipping insert", tmdb_id, row.id)
-                return row
+                return row, False
+        # Also check by file_id to avoid re-distributing the exact same file
+        file_id = kwargs.get("file_id")
+        if file_id:
+            existing_f = await s.execute(
+                select(Movie).where(Movie.file_id == file_id)
+            )
+            row_f = existing_f.scalar_one_or_none()
+            if row_f:
+                logger.info("add_movie: file_id already exists (id=%s), skipping insert", row_f.id)
+                return row_f, False
         try:
             movie = Movie(**kwargs)
             s.add(movie)
             await s.commit()
             await s.refresh(movie)
-            return movie
+            return movie, True
         except IntegrityError:
             await s.rollback()
             # Race condition: another worker inserted between our check and insert
             result = await s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id))
-            return result.scalar_one()
+            return result.scalar_one(), False
+
+
+async def get_movie_by_tmdb(tmdb_id: int) -> Optional[Movie]:
+    async with async_session() as s:
+        result = await s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id))
+        return result.scalar_one_or_none()
+
+
+async def get_movie_by_file(file_id: str) -> Optional[Movie]:
+    async with async_session() as s:
+        result = await s.execute(select(Movie).where(Movie.file_id == file_id))
+        return result.scalar_one_or_none()
 
 
 async def search_movies(query: str, limit: int = 10) -> list[Movie]:

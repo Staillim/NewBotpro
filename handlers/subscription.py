@@ -14,21 +14,30 @@ logger = logging.getLogger(__name__)
 
 
 PLANS_TEXT = """
-💎 *Planes TodoCineHD Premium*
+💎 *Planes CineStelar Premium*
 
-Elige el plan que mejor se adapte a ti:
+Elige la duración que prefieras:
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💫 *Plan Lite* — {lite_stars} ⭐ / mes
+⚡ *Plan Lite 15 días* — {lite_15d_stars} ⭐
+└ Ideal para descubrir el servicio
+
+💫 *Plan Lite 30 días* — {lite_stars} ⭐ / mes
 ├ ✅ Catálogo completo (Pelis, Series, Anime)
 ├ ✅ Streaming sin anuncios
 ├ ✅ Búsqueda inteligente
 └ ❌ No puedes guardar contenido
 
+🗓️ *Plan Lite 6 meses* — {lite_6m_stars} ⭐
+└ 🔥 ¡Ahorra {lite_6m_savings} ⭐ vs pago mensual! (≈23%)
+
+🏆 *Plan Lite 1 año* — {lite_1y_stars} ⭐
+└ 🔥 ¡Ahorra {lite_1y_savings} ⭐ vs pago mensual! (≈40%)
+
 ━━━━━━━━━━━━━━━━━━━━━━
 
-👑 *Plan Pro* — {pro_stars} ⭐ / mes
+👑 *Plan Pro 30 días* — {pro_stars} ⭐ / mes
 ├ ✅ Todo lo del Plan Lite
 ├ ✅ Guardar contenido en tu dispositivo
 ├ ✅ Acceso prioritario a estrenos
@@ -49,18 +58,24 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = PLANS_TEXT.format(
         lite_stars=settings.PLAN_LITE_STARS,
         pro_stars=settings.PLAN_PRO_STARS,
+        lite_15d_stars=settings.PLAN_LITE_15D_STARS,
+        lite_6m_stars=settings.PLAN_LITE_6M_STARS,
+        lite_1y_stars=settings.PLAN_LITE_1Y_STARS,
+        lite_6m_savings=settings.PLAN_LITE_STARS * 6 - settings.PLAN_LITE_6M_STARS,
+        lite_1y_savings=settings.PLAN_LITE_STARS * 12 - settings.PLAN_LITE_1Y_STARS,
     )
 
     buttons = [
         [
-            InlineKeyboardButton(
-                f"💫 Lite — {settings.PLAN_LITE_STARS} ⭐",
-                callback_data="payment:lite",
-            ),
-            InlineKeyboardButton(
-                f"👑 Pro — {settings.PLAN_PRO_STARS} ⭐",
-                callback_data="payment:pro",
-            ),
+            InlineKeyboardButton(f"⚡ 15d — {settings.PLAN_LITE_15D_STARS} ⭐", callback_data="payment:lite_15d"),
+            InlineKeyboardButton(f"💫 30d — {settings.PLAN_LITE_STARS} ⭐",    callback_data="payment:lite"),
+        ],
+        [
+            InlineKeyboardButton(f"🗓️ 6m — {settings.PLAN_LITE_6M_STARS} ⭐",  callback_data="payment:lite_6m"),
+            InlineKeyboardButton(f"🏆 1año — {settings.PLAN_LITE_1Y_STARS} ⭐", callback_data="payment:lite_1y"),
+        ],
+        [
+            InlineKeyboardButton(f"👑 Pro 30d — {settings.PLAN_PRO_STARS} ⭐",  callback_data="payment:pro"),
         ],
         [InlineKeyboardButton("🏠 Menú Principal", callback_data="menu:main")],
     ]

@@ -107,26 +107,48 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         await db.register_group(chat.id, chat.title)
 
     text = message.text.strip()
+
+    # ── Direct @ search: "@iron man" or "@VipStellar_bot iron man" ───────────
+    # Matches @ prefix, optionally followed by the bot username, then the query
+    bot_user = (settings.BOT_USERNAME or "").lstrip("@").lower()
+    at_match = re.match(
+        rf"^@(?:{re.escape(bot_user)}\s+)?(.+)$", text, re.IGNORECASE
+    )
+    direct_query: str | None = None
+    if at_match:
+        candidate = at_match.group(1).strip()
+        # A bare @username (no spaces, valid Telegram handle) is a user mention — skip
+        if candidate and (" " in candidate or not re.match(r"^[A-Za-z0-9_]{5,32}$", candidate)):
+            direct_query = candidate
+
+    if direct_query:
+        await _reply_search(message, direct_query, context)
+        return
+
+    # ── NLP keyword detection ─────────────────────────────────────────────────
     is_search, score = _is_potential_search(text)
     if not is_search:
         return
 
     query_text = _clean_query(text)
     if len(query_text) < 2:
-        query_text = text  # fallback: use original if clean strips too much
+        query_text = text
 
-    # Search catalog
+    await _reply_search(message, query_text, context, score=score)
+
+
+async def _reply_search(message, query_text: str, context, *, score: float = 1.0) -> None:
+    """Search catalog and reply with results. Used by both NLP and @ flows."""
     results_movies = await db.search_movies(query_text, limit=3)
     results_series = await db.search_shows(query_text, ContentType.SERIES, limit=3)
-    results_anime = await db.search_shows(query_text, ContentType.ANIME, limit=3)
+    results_anime  = await db.search_shows(query_text, ContentType.ANIME,   limit=3)
 
     total = len(results_movies) + len(results_series) + len(results_anime)
     if total == 0:
         return  # nothing found → stay silent
 
-    # Add result-presence bonus and re-check threshold
-    final_score = score + 0.30
-    if final_score < 0.70:
+    # For NLP flow, require a high combined score
+    if score < 1.0 and score + 0.30 < 0.70:
         return
 
     bot_username = settings.BOT_USERNAME

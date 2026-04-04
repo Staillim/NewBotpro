@@ -335,6 +335,30 @@ async def get_anime(
 
 # ── Detail ────────────────────────────────────────────────────────────────────
 
+@app.get("/api/genres")
+async def get_genres():
+    """Return list of all distinct genre names."""
+    genres = await db.get_all_genres()
+    return {"genres": genres}
+
+
+@app.get("/api/by-genre")
+async def get_by_genre(
+    genre: str = Query(..., min_length=1, max_length=100),
+    page: int = Query(0, ge=0),
+):
+    """Return movies + shows that match a genre."""
+    items, total = await db.get_items_by_genre(genre, page, page_size=_PAGE_SIZE)
+    serialized = []
+    for kind, item in items:
+        if kind == "movie":
+            serialized.append(_movie(item))
+        else:
+            serialized.append(_show(item))
+    pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    return {"items": serialized, "total": total, "pages": pages, "page": page}
+
+
 @app.get("/api/movie/{movie_id}")
 async def movie_detail(movie_id: int):
     m = await db.get_movie(movie_id)

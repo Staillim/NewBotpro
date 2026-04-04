@@ -476,7 +476,10 @@
     let heroIndex = 0;
     let heroItems = [];
     let catalogData = { movies: [], series: [], anime: [] };
+    let genreList = [];
+    let genreData = {}; // { 'Acción': [items], ... }
     let expandedCategory = null; // for "ver todo"
+    let expandedGenre = null; // for genre "ver todo"
     let expandedPage = 0;
     let expandedTotalPages = 1;
     let expandedLoading = false;
@@ -497,6 +500,7 @@
       } catch (_) {}
       renderLoadingHome();
       await loadAllCategories();
+      await loadGenres();
       renderHome();
     }
 
@@ -521,6 +525,25 @@
         }
       } catch (e) {
         console.error('Failed to load catalog:', e);
+      }
+    }
+
+    // ── Load genres ──────────────────────────────────────────────────────────
+    async function loadGenres() {
+      try {
+        const data = await fetch('/api/genres').then(r => r.json());
+        genreList = (data.genres || []).slice(0, 10); // max 10 genre sections
+        // Load first page for each genre in parallel
+        const results = await Promise.all(
+          genreList.map(g => fetch(`/api/by-genre?genre=${encodeURIComponent(g)}&page=0`).then(r => r.json()))
+        );
+        genreList.forEach((g, i) => {
+          genreData[g] = results[i].items || [];
+        });
+        // Remove genres with no items
+        genreList = genreList.filter(g => genreData[g].length > 0);
+      } catch (e) {
+        console.error('Failed to load genres:', e);
       }
     }
 
@@ -605,9 +628,42 @@
         html += `</div></div>`;
       });
 
+      // Genre sections
+      const GENRE_EMOJI = {
+        'Acción': '💥', 'Action': '💥', 'Terror': '👻', 'Horror': '👻',
+        'Ciencia ficción': '🚀', 'Science Fiction': '🚀',
+        'Comedia': '😂', 'Comedy': '😂', 'Drama': '🎭',
+        'Romance': '💕', 'Aventura': '⚔️', 'Adventure': '⚔️',
+        'Animación': '🎨', 'Animation': '🎨', 'Fantasía': '🧙', 'Fantasy': '🧙',
+        'Crimen': '🔪', 'Crime': '🔪', 'Suspense': '😰', 'Thriller': '😰',
+        'Documental': '📹', 'Documentary': '📹', 'Misterio': '🕵️', 'Mystery': '🕵️',
+        'Música': '🎵', 'Music': '🎵', 'Guerra': '⚔️', 'War': '⚔️',
+        'Familia': '👨‍👩‍👧‍👦', 'Family': '👨‍👩‍👧‍👦', 'Historia': '📜', 'History': '📜',
+        'Occidental': '🤠', 'Western': '🤠',
+      };
+
+      genreList.forEach(genre => {
+        const items = genreData[genre] || [];
+        if (items.length === 0) return;
+        const emoji = GENRE_EMOJI[genre] || '🎬';
+        html += `
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title glow-text">${emoji} ${esc(genre)}</div>
+              <button class="section-more" data-genre="${esc(genre)}">Ver todo →</button>
+            </div>
+            <div class="carousel-row">`;
+        items.forEach(item => {
+          const itemEmoji = TYPE_EMOJI[item.type] || '🎬';
+          html += buildCardHtml(item, itemEmoji);
+        });
+        html += `</div></div>`;
+      });
+
       // If everything is empty
       if (heroItems.length === 0 && catalogData.movies.length === 0
-          && catalogData.series.length === 0 && catalogData.anime.length === 0) {
+          && catalogData.series.length === 0 && catalogData.anime.length === 0
+          && genreList.length === 0) {
         html = `<div class="empty"><span>🎬</span>No hay contenido disponible todavía.</div>`;
       }
 
@@ -700,8 +756,11 @@
 
     // ── "Ver todo" → expanded grid ──────────────────────────────────────────
     function attachSectionMoreEvents() {
-      document.querySelectorAll('.section-more').forEach(btn => {
+      document.querySelectorAll('.section-more[data-cat]').forEach(btn => {
         btn.addEventListener('click', () => openExpandedView(btn.dataset.cat));
+      });
+      document.querySelectorAll('.section-more[data-genre]').forEach(btn => {
+        btn.addEventListener('click', () => openGenreExpandedView(btn.dataset.genre));
       });
     }
 
@@ -762,6 +821,74 @@
       }
     }
 
+    // ── Genre expanded view ────────────────────────────────────────────────
+    async function openGenreExpandedView(genre) {
+      expandedGenre = genre;
+      expandedCategory = null;
+      expandedPage = 0;
+      expandedTotalPages = 1;
+      stopHeroAutoplay();
+
+      const GENRE_EMOJI = {
+        'Acción': '💥', 'Action': '💥', 'Terror': '👻', 'Horror': '👻',
+        'Ciencia ficción': '🚀', 'Science Fiction': '🚀',
+        'Comedia': '😂', 'Comedy': '😂', 'Drama': '🎭',
+        'Romance': '💕', 'Aventura': '⚔️', 'Adventure': '⚔️',
+        'Animación': '🎨', 'Animation': '🎨', 'Fantasía': '🧙', 'Fantasy': '🧙',
+        'Crimen': '🔪', 'Crime': '🔪', 'Suspense': '😰', 'Thriller': '😰',
+        'Documental': '📹', 'Documentary': '📹', 'Misterio': '🕵️', 'Mystery': '🕵️',
+      };
+      const emoji = GENRE_EMOJI[genre] || '🎬';
+      const main = document.getElementById('mainContent');
+      main.innerHTML = `
+        <div class="expanded-view" id="expandedView">
+          <button class="expanded-back" id="expandedBack">← Volver</button>
+          <div class="expanded-title glow-text">${emoji} ${esc(genre)}</div>
+          <div class="expanded-grid" id="expandedGrid"></div>
+          <div class="load-more-wrap" id="expandedLoadMore" style="display:none">
+            <button class="btn-load" id="expandedLoadBtn">Cargar más</button>
+          </div>
+        </div>`;
+
+      document.getElementById('expandedBack').addEventListener('click', () => {
+        expandedGenre = null;
+        renderHome();
+      });
+      document.getElementById('expandedLoadBtn').addEventListener('click', () => loadGenrePage());
+
+      await loadGenrePage(true);
+    }
+
+    async function loadGenrePage(reset = false) {
+      if (expandedLoading || !expandedGenre) return;
+      if (reset) expandedPage = 0;
+      expandedLoading = true;
+
+      const grid = document.getElementById('expandedGrid');
+      if (reset) grid.innerHTML = Array(8).fill('<div class="skeleton-card skeleton"></div>').join('');
+
+      try {
+        const data = await fetch(`/api/by-genre?genre=${encodeURIComponent(expandedGenre)}&page=${expandedPage}`).then(r => r.json());
+        if (reset) grid.innerHTML = '';
+        data.items.forEach(item => {
+          const emoji = TYPE_EMOJI[item.type] || '🎬';
+          grid.insertAdjacentHTML('beforeend', buildCardHtml(item, emoji));
+        });
+        expandedTotalPages = data.pages || 1;
+        expandedPage = data.page + 1;
+        document.getElementById('expandedLoadMore').style.display =
+          expandedPage < expandedTotalPages ? 'block' : 'none';
+        if (data.items.length === 0 && reset) {
+          grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span>🎬</span>No hay contenido en este género.</div>`;
+        }
+        attachCardEvents();
+      } catch (e) {
+        if (reset) grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span>⚠️</span>Error al cargar.</div>`;
+      } finally {
+        expandedLoading = false;
+      }
+    }
+
     // ── Search ───────────────────────────────────────────────────────────────
     document.getElementById('searchInput').addEventListener('input', e => {
       const val = e.target.value.trim();
@@ -773,6 +900,7 @@
           runSearch(val);
         } else {
           expandedCategory = null;
+          expandedGenre = null;
           renderHome();
         }
       }, 380);
@@ -783,6 +911,7 @@
       document.getElementById('searchClear').style.display = 'none';
       searchQuery = '';
       expandedCategory = null;
+      expandedGenre = null;
       renderHome();
     });
 

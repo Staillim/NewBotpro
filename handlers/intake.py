@@ -81,21 +81,12 @@ async def _notify_groups(context, title: str, year: str | None,
 
     for chat_id in groups:
         try:
-            if poster_url:
-                await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=poster_url,
-                    caption=text,
-                    reply_markup=kb,
-                    parse_mode="Markdown",
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=text,
-                    reply_markup=kb,
-                    parse_mode="Markdown",
-                )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="Markdown",
+            )
             await asyncio.sleep(0.3)  # small delay between groups
         except RetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 1)

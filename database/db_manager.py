@@ -595,3 +595,59 @@ async def get_active_groups() -> list[int]:
             select(BotGroup.chat_id).where(BotGroup.active == True)  # noqa: E712
         )
         return [row[0] for row in result.all()]
+
+
+# ── Genres ────────────────────────────────────────────────────────────────────
+
+async def get_all_genres() -> list[str]:
+    """Return distinct genre names from movies + shows, sorted."""
+    async with async_session() as s:
+        mov_r = await s.execute(select(Movie.genres).where(Movie.genres.isnot(None)))
+        show_r = await s.execute(
+            select(TvShow.genres).where(
+                TvShow.genres.isnot(None), TvShow.published == True  # noqa: E712
+            )
+        )
+        genre_set: set[str] = set()
+        for row in mov_r.all():
+            for g in row[0].split(","):
+                g = g.strip()
+                if g:
+                    genre_set.add(g)
+        for row in show_r.all():
+            for g in row[0].split(","):
+                g = g.strip()
+                if g:
+                    genre_set.add(g)
+        return sorted(genre_set)
+
+
+async def get_items_by_genre(genre: str, page: int = 0, page_size: int = 20) -> tuple[list, int]:
+    """Return movies + shows matching a genre, newest first."""
+    pattern = f"%{genre}%"
+    async with async_session() as s:
+        # Movies matching genre
+        mov_r = await s.execute(
+            select(Movie).where(Movie.genres.ilike(pattern))
+            .order_by(Movie.indexed_at.desc())
+        )
+        movies = list(mov_r.scalars().all())
+
+        # Published shows matching genre
+        show_r = await s.execute(
+            select(TvShow).where(
+                TvShow.genres.ilike(pattern),
+                TvShow.published == True,  # noqa: E712
+            )
+            .order_by(TvShow.indexed_at.desc())
+        )
+        shows = list(show_r.scalars().all())
+
+        combined = sorted(
+            [("movie", m) for m in movies] + [("show", s_) for s_ in shows],
+            key=lambda x: (x[1].indexed_at or _now()),
+            reverse=True,
+        )
+        total = len(combined)
+        page_items = combined[page * page_size : (page + 1) * page_size]
+        return page_items, total

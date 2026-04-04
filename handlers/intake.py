@@ -32,6 +32,12 @@ _index_lock = asyncio.Semaphore(1)
 # Delay between consecutive sends to the distribution channel (seconds)
 _SEND_DELAY = 2.0
 
+# ── Pending-movie state (TMDB not found) ──────────────────────────────────────
+# keyed by intake message_id
+_pending_movies: dict[int, dict] = {}
+# admin_chat_id → pending movie msg_id (waiting for admin to type a new name)
+_awaiting_rename: dict[int, int] = {}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -421,29 +427,22 @@ async def _index_movie(file_id: str, post: Message, context) -> None:
         await asyncio.sleep(_SEND_DELAY)
 
 
-async def _do_index_movie(file_id: str, post: Message, context) -> None:
-    """Internal: perform TMDB lookup, channel send, and DB insert for one movie."""
-    caption = (post.caption or "").strip()
-    clean = clean_title(caption)
-    year = extract_year(caption)
-
-    # Search TMDB (small delay avoids hammering the API back-to-back)
-    tmdb_data: dict = {}
-    if clean:
-        try:
-            results = await tmdb_api.search_movie(clean, year)
-            if results:
-                tmdb_data = results[0]
-        except Exception as exc:
-            logger.warning("TMDB movie search failed for '%s': %s", clean, exc)
-
-    title = tmdb_data.get("title", clean or caption[:100] or "Sin título")
+async def _publish_movie(
+    file_id: str,
+    orig_msg_id: int,
+    caption: str,
+    tmdb_data: dict,
+    fallback_title: str,
+    year: str | None,
+    context,
+) -> None:
+    """Send video to distribution channel and persist to DB."""
+    title = tmdb_data.get("title", fallback_title or "Sin título")
     year_val = tmdb_data.get("year", year)
 
     channel_msg_id = None
     caption_text = f"🎬 {title} ({year_val})" if year_val else f"🎬 {title}"
 
-    # Send to distribution channel with retry on flood control
     for attempt in range(3):
         try:
             sent = await context.bot.send_video(
@@ -466,7 +465,7 @@ async def _do_index_movie(file_id: str, post: Message, context) -> None:
 
     await db.add_movie(
         file_id=file_id,
-        message_id=post.message_id,
+        message_id=orig_msg_id,
         channel_message_id=channel_msg_id,
         title=title,
         original_title=tmdb_data.get("original_title"),
@@ -482,9 +481,8 @@ async def _do_index_movie(file_id: str, post: Message, context) -> None:
     )
 
     await _notify(context, f"✅ *{title}* {'(' + str(year_val) + ')' if year_val else ''} indexada.")
-    logger.info("Movie indexed: %s (msg_id=%s)", title, post.message_id)
+    logger.info("Movie indexed: %s (msg_id=%s)", title, orig_msg_id)
 
-    # Notify all registered groups
     movie = (await db.search_movies(title, limit=1) or [None])[0]
     if movie:
         await _notify_groups(
@@ -495,3 +493,132 @@ async def _do_index_movie(file_id: str, post: Message, context) -> None:
             deeplink=f"watch_movie_{movie.id}",
             emoji="🎬",
         )
+
+
+async def _do_index_movie(file_id: str, post: Message, context) -> None:
+    """Internal: perform TMDB lookup, channel send, and DB insert for one movie."""
+    caption = (post.caption or "").strip()
+    clean = clean_title(caption)
+    year = extract_year(caption)
+
+    # Search TMDB (small delay avoids hammering the API back-to-back)
+    tmdb_data: dict = {}
+    if clean:
+        try:
+            results = await tmdb_api.search_movie(clean, year)
+            if results:
+                tmdb_data = results[0]
+        except Exception as exc:
+            logger.warning("TMDB movie search failed for '%s': %s", clean, exc)
+
+    # ── Not found in TMDB → ask admin to skip or retry with another name ──────
+    if not tmdb_data:
+        msg_key = post.message_id
+        _pending_movies[msg_key] = {
+            "file_id": file_id,
+            "msg_id": msg_key,
+            "caption": caption,
+            "clean": clean,
+            "year": year,
+        }
+        searched = clean or caption[:80] or "(sin título)"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("⏭️ Omitir", callback_data=f"skip_movie:{msg_key}"),
+            InlineKeyboardButton("🔍 Otro nombre", callback_data=f"rename_movie:{msg_key}"),
+        ]])
+        if settings.ADMIN_IDS:
+            await context.bot.send_message(
+                chat_id=settings.ADMIN_IDS[0],
+                text=(
+                    f"❓ *Película no encontrada en TMDB*\n\n"
+                    f"Título buscado: `{searched}`\n\n"
+                    f"¿Qué hacemos con este video?"
+                ),
+                parse_mode="Markdown",
+                reply_markup=kb,
+            )
+        return
+
+    await _publish_movie(
+        file_id, post.message_id, caption, tmdb_data,
+        clean or caption[:100], year, context,
+    )
+
+
+# ── Indexing-error public handlers ───────────────────────────────────────────
+
+async def handle_intake_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle admin inline-keyboard decisions on unresolved movies (skip / rename)."""
+    query = update.callback_query
+    await query.answer()
+
+    parts = (query.data or "").split(":", 1)
+    if len(parts) != 2:
+        return
+    action, msg_id_str = parts
+    try:
+        msg_id = int(msg_id_str)
+    except ValueError:
+        return
+
+    if action == "skip_movie":
+        _pending_movies.pop(msg_id, None)
+        await query.edit_message_text("⏭️ Película omitida.")
+        return
+
+    if action == "rename_movie":
+        if msg_id not in _pending_movies:
+            await query.edit_message_text("⚠️ Esta película ya fue procesada.")
+            return
+        admin_id = query.from_user.id
+        _awaiting_rename[admin_id] = msg_id
+        await query.edit_message_text(
+            "✏️ Escribe el nombre con el que quieres buscar la película en TMDB:"
+        )
+
+
+async def handle_admin_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Intercept admin private messages when they are providing a new search name.
+    Returns True if message was consumed (rename flow), False otherwise.
+    """
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id is None or user_id not in settings.ADMIN_IDS:
+        return False
+    if user_id not in _awaiting_rename:
+        return False
+
+    msg_id = _awaiting_rename.pop(user_id)
+    pending = _pending_movies.pop(msg_id, None)
+    if not pending:
+        await update.message.reply_text("⚠️ La película ya fue procesada o fue omitida.")
+        return True
+
+    new_name = update.message.text.strip()
+    await update.message.reply_text(f"🔍 Buscando *{new_name}* en TMDB…", parse_mode="Markdown")
+
+    tmdb_data: dict = {}
+    try:
+        results = await tmdb_api.search_movie(new_name, pending["year"])
+        if results:
+            tmdb_data = results[0]
+    except Exception as exc:
+        logger.warning("TMDB rename search failed for '%s': %s", new_name, exc)
+
+    if not tmdb_data:
+        await update.message.reply_text(
+            f"⚠️ *{new_name}* tampoco fue encontrada en TMDB.\n"
+            f"Indexando con ese nombre sin metadata.",
+            parse_mode="Markdown",
+        )
+
+    await _publish_movie(
+        pending["file_id"],
+        pending["msg_id"],
+        pending["caption"],
+        tmdb_data,
+        new_name,
+        pending["year"],
+        context,
+    )
+    return True

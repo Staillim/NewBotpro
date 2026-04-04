@@ -40,7 +40,7 @@ from handlers.admin import (
 )
 from handlers.broadcast import broadcast_command
 from handlers.callbacks import callback_handler
-from handlers.intake import handle_channel_post
+from handlers.intake import handle_channel_post, handle_admin_rename, handle_intake_callback, handle_admin_rename, handle_intake_callback
 from handlers.payment import donate_command, pre_checkout_handler, send_donate_invoice, successful_payment_handler
 from handlers.group_search import handle_group_message, handle_my_chat_member
 from handlers.search import handle_search_query
@@ -63,6 +63,13 @@ def _fire(coro) -> None:
     task = asyncio.create_task(coro)
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
+
+
+async def _handle_private_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route private text: admin rename flow first, then regular search."""
+    if await handle_admin_rename(update, context):
+        return
+    await handle_search_query(update, context)
 
 
 def _build_tg_application():
@@ -93,6 +100,7 @@ def _build_tg_application():
     tg.add_handler(CommandHandler("donar", donate_command))
     tg.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     tg.add_handler(CallbackQueryHandler(send_donate_invoice, pattern=r"^donate:\d+$"))
+    tg.add_handler(CallbackQueryHandler(handle_intake_callback, pattern=r"^(skip_movie|rename_movie):\d+$"))
     tg.add_handler(CallbackQueryHandler(callback_handler))
     tg.add_handler(MessageHandler(
         filters.SUCCESSFUL_PAYMENT,
@@ -100,7 +108,7 @@ def _build_tg_application():
     ))
     tg.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-        handle_search_query,
+        _handle_private_text,
     ))
     tg.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,

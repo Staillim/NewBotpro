@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select, update, delete, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -260,12 +262,29 @@ async def cancel_plan(user_id: int):
 # â”€â”€ Movies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def add_movie(**kwargs) -> Movie:
+    """Insert movie, or return existing row if tmdb_id already exists."""
     async with async_session() as s:
-        movie = Movie(**kwargs)
-        s.add(movie)
-        await s.commit()
-        await s.refresh(movie)
-        return movie
+        # If TMDB match exists, return it instead of inserting a duplicate
+        tmdb_id = kwargs.get("tmdb_id")
+        if tmdb_id:
+            existing = await s.execute(
+                select(Movie).where(Movie.tmdb_id == tmdb_id)
+            )
+            row = existing.scalar_one_or_none()
+            if row:
+                logger.info("add_movie: tmdb_id=%s already exists (id=%s), skipping insert", tmdb_id, row.id)
+                return row
+        try:
+            movie = Movie(**kwargs)
+            s.add(movie)
+            await s.commit()
+            await s.refresh(movie)
+            return movie
+        except IntegrityError:
+            await s.rollback()
+            # Race condition: another worker inserted between our check and insert
+            result = await s.execute(select(Movie).where(Movie.tmdb_id == tmdb_id))
+            return result.scalar_one()
 
 
 async def search_movies(query: str, limit: int = 10) -> list[Movie]:

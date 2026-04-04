@@ -43,7 +43,7 @@ async def _get(endpoint: str, params: dict = None) -> Optional[dict]:
             r.raise_for_status()
             return r.json()
     except Exception as e:
-        logger.error("TMDb request failed: %s", e)
+        logger.error("TMDb request failed: %s — %r", type(e).__name__, str(e))
         return None
 
 

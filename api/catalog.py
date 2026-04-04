@@ -384,12 +384,12 @@ def _movie(m, detail: bool = False) -> dict:
         "year": m.year,
         "vote_average": m.vote_average,
         "poster_url": m.poster_url,
+        "backdrop_url": m.backdrop_url,
         "genres": m.genres,
+        "overview": m.overview,
     }
     if detail:
         d.update({
-            "overview": m.overview,
-            "backdrop_url": m.backdrop_url,
             "runtime": m.runtime,
             "original_title": m.original_title,
         })
@@ -404,13 +404,13 @@ def _show(s, detail: bool = False) -> dict:
         "year": s.year,
         "vote_average": s.vote_average,
         "poster_url": s.poster_url,
+        "backdrop_url": s.backdrop_url,
         "genres": s.genres,
+        "overview": s.overview,
         "seasons": s.number_of_seasons,
     }
     if detail:
         d.update({
-            "overview": s.overview,
-            "backdrop_url": s.backdrop_url,
             "original_title": s.original_name,
         })
     return d

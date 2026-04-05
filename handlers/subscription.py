@@ -14,33 +14,26 @@ logger = logging.getLogger(__name__)
 
 
 PLANS_TEXT = """
-💎 *Planes CineStelar Premium*
+💎 *Planes CineStelar*
+
+💫 *Plan Lite*
+✅ Ver series y películas sin anuncios
+❌ No se puede descargar ni reenviar contenido
+
+👑 *Plan Pro*
+✅ Ver series y películas sin anuncios
+✅ Descargar y reenviar contenido
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💫 *Plan LITE* — solo streaming
-├ ✅ Catálogo completo (Pelis, Series, Anime)
-├ ✅ Streaming sin anuncios
-├ ✅ Búsqueda inteligente
-└ ❌ Sin descarga ni reenvío de contenido
-
-💫 30 días — {lite_stars} ⭐
+💫 Plan Lite  30 días  —  {lite_stars} ⭐
+👑 Plan Pro   30 días  —  {pro_stars} ⭐
+🗓️ Plan Pro   6 meses  —  {pro_6m_stars} ⭐  _(23% dct.)_
+🏆 Plan Pro   1 año    —  {pro_1y_stars} ⭐  _(40% dct.)_
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-👑 *Plan PRO* — experiencia completa
-├ ✅ Todo lo del Plan Lite
-├ ✅ Guarda contenido en tu dispositivo
-├ ✅ Comparte contenido con quien quieras
-└ ✅ Acceso prioritario a estrenos
-
-👑 30 días — {pro_stars} ⭐
-🗓️ 6 meses — {pro_6m_stars} ⭐  🔥 Ahorra {pro_6m_savings} ⭐ (~23%)
-🏆 1 año — {pro_1y_stars} ⭐  🔥 Ahorra {pro_1y_savings} ⭐ (~40%)
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-⭐ El pago se realiza con *Telegram Stars* directamente desde la app.
+⭐ Pago con *Telegram Stars* directo desde la app.
 """
 
 
@@ -55,20 +48,18 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pro_stars=settings.PLAN_PRO_STARS,
         pro_6m_stars=settings.PLAN_PRO_6M_STARS,
         pro_1y_stars=settings.PLAN_PRO_1Y_STARS,
-        pro_6m_savings=settings.PLAN_PRO_STARS * 6 - settings.PLAN_PRO_6M_STARS,
-        pro_1y_savings=settings.PLAN_PRO_STARS * 12 - settings.PLAN_PRO_1Y_STARS,
     )
 
     buttons = [
         [
-            InlineKeyboardButton(f"💫 Lite 30d — {settings.PLAN_LITE_STARS} ⭐",    callback_data="payment:lite"),
+            InlineKeyboardButton(f"💫 Lite 30d — {settings.PLAN_LITE_STARS} ⭐",     callback_data="payment:lite"),
+            InlineKeyboardButton(f"👑 Pro 30d — {settings.PLAN_PRO_STARS} ⭐",       callback_data="payment:pro"),
         ],
         [
-            InlineKeyboardButton(f"👑 Pro 30d — {settings.PLAN_PRO_STARS} ⭐",      callback_data="payment:pro"),
+            InlineKeyboardButton(f"🗓️ Pro 6m — {settings.PLAN_PRO_6M_STARS} ⭐ (23% dct.)",  callback_data="payment:pro_6m"),
         ],
         [
-            InlineKeyboardButton(f"🗓️ Pro 6m — {settings.PLAN_PRO_6M_STARS} ⭐",   callback_data="payment:pro_6m"),
-            InlineKeyboardButton(f"🏆 Pro 1año — {settings.PLAN_PRO_1Y_STARS} ⭐", callback_data="payment:pro_1y"),
+            InlineKeyboardButton(f"🏆 Pro 1año — {settings.PLAN_PRO_1Y_STARS} ⭐ (40% dct.)", callback_data="payment:pro_1y"),
         ],
         [InlineKeyboardButton("🏠 Menú Principal", callback_data="menu:main")],
     ]

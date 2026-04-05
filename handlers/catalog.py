@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from config.settings import settings
 from database import db_manager as db
-from database.models import ContentType
+from database.models import ContentType, PlanType
 
 logger = logging.getLogger(__name__)
 PAGE_SIZE = settings.CATALOG_PAGE_SIZE
@@ -255,7 +255,12 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
         return
 
     user_id = query.from_user.id
-    is_active, _ = await db.check_subscription(user_id)
+    is_active, plan = await db.check_subscription(user_id)
+    is_pro = plan == PlanType.PRO
+
+    if not is_active:
+        await query.answer()
+        ep_label = f"T{ep.season_number}E{ep.episode_number}: {ep_title}"
 
     if not is_active:
         await query.answer()
@@ -296,6 +301,7 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
             video=movie.file_id,
             caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_TodoCineHD_",
             parse_mode="Markdown",
+            protect_content=not is_pro,
         )
         await db.log_activity(query.from_user.id, "watch_movie", movie.id, "movie")
     except Exception:
@@ -305,6 +311,7 @@ async def watch_movie(update: Update, context: ContextTypes.DEFAULT_TYPE, movie_
                 document=movie.file_id,
                 caption=f"🎬 *{movie.title}* ({movie.year or ''})\n\n_TodoCineHD_",
                 parse_mode="Markdown",
+                protect_content=not is_pro,
             )
             await db.log_activity(query.from_user.id, "watch_movie", movie.id, "movie")
         except Exception as e2:
@@ -328,7 +335,8 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
     ep_title = ep.title or f"Episodio {ep.episode_number}"
 
     user_id = query.from_user.id
-    is_active, _ = await db.check_subscription(user_id)
+    is_active, plan = await db.check_subscription(user_id)
+    is_pro = plan == PlanType.PRO
 
     if not is_active:
         await query.answer()
@@ -374,6 +382,7 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
                 f"_TodoCineHD_"
             ),
             parse_mode="Markdown",
+            protect_content=not is_pro,
         )
         content_type = "anime" if (show and show.content_type == ContentType.ANIME) else "series"
         await db.log_activity(query.from_user.id, "watch_episode", ep.id, content_type)
@@ -389,6 +398,7 @@ async def watch_episode(update: Update, context: ContextTypes.DEFAULT_TYPE, epis
                     f"_TodoCineHD_"
                 ),
                 parse_mode="Markdown",
+                protect_content=not is_pro,
             )
             await db.log_activity(query.from_user.id, "watch_episode", ep.id, "series")
         except Exception as e2:

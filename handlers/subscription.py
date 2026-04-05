@@ -16,32 +16,28 @@ logger = logging.getLogger(__name__)
 PLANS_TEXT = """
 💎 *Planes CineStelar Premium*
 
-Elige la duración que prefieras:
-
 ━━━━━━━━━━━━━━━━━━━━━━
 
-⚡ *Plan Lite 15 días* — {lite_15d_stars} ⭐
-└ Ideal para descubrir el servicio
-
-💫 *Plan Lite 30 días* — {lite_stars} ⭐ / mes
+💫 *Plan LITE* — solo streaming
 ├ ✅ Catálogo completo (Pelis, Series, Anime)
 ├ ✅ Streaming sin anuncios
 ├ ✅ Búsqueda inteligente
-└ ❌ No puedes guardar contenido
+└ ❌ Sin descarga ni reenvío de contenido
 
-🗓️ *Plan Lite 6 meses* — {lite_6m_stars} ⭐
-└ 🔥 ¡Ahorra {lite_6m_savings} ⭐ vs pago mensual! (≈23%)
-
-🏆 *Plan Lite 1 año* — {lite_1y_stars} ⭐
-└ 🔥 ¡Ahorra {lite_1y_savings} ⭐ vs pago mensual! (≈40%)
+⚡ 15 días — {lite_15d_stars} ⭐
+💫 30 días — {lite_stars} ⭐
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-👑 *Plan Pro 30 días* — {pro_stars} ⭐ / mes
+👑 *Plan PRO* — experiencia completa
 ├ ✅ Todo lo del Plan Lite
-├ ✅ Guardar contenido en tu dispositivo
-├ ✅ Acceso prioritario a estrenos
-└ ✅ Soporte prioritario
+├ ✅ Guarda contenido en tu dispositivo
+├ ✅ Comparte contenido con quien quieras
+└ ✅ Acceso prioritario a estrenos
+
+👑 30 días — {pro_stars} ⭐
+🗓️ 6 meses — {pro_6m_stars} ⭐  🔥 Ahorra {pro_6m_savings} ⭐ (~23%)
+🏆 1 año — {pro_1y_stars} ⭐  🔥 Ahorra {pro_1y_savings} ⭐ (~40%)
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
@@ -57,25 +53,25 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = PLANS_TEXT.format(
         lite_stars=settings.PLAN_LITE_STARS,
-        pro_stars=settings.PLAN_PRO_STARS,
         lite_15d_stars=settings.PLAN_LITE_15D_STARS,
-        lite_6m_stars=settings.PLAN_LITE_6M_STARS,
-        lite_1y_stars=settings.PLAN_LITE_1Y_STARS,
-        lite_6m_savings=settings.PLAN_LITE_STARS * 6 - settings.PLAN_LITE_6M_STARS,
-        lite_1y_savings=settings.PLAN_LITE_STARS * 12 - settings.PLAN_LITE_1Y_STARS,
+        pro_stars=settings.PLAN_PRO_STARS,
+        pro_6m_stars=settings.PLAN_PRO_6M_STARS,
+        pro_1y_stars=settings.PLAN_PRO_1Y_STARS,
+        pro_6m_savings=settings.PLAN_PRO_STARS * 6 - settings.PLAN_PRO_6M_STARS,
+        pro_1y_savings=settings.PLAN_PRO_STARS * 12 - settings.PLAN_PRO_1Y_STARS,
     )
 
     buttons = [
         [
-            InlineKeyboardButton(f"⚡ 15d — {settings.PLAN_LITE_15D_STARS} ⭐", callback_data="payment:lite_15d"),
-            InlineKeyboardButton(f"💫 30d — {settings.PLAN_LITE_STARS} ⭐",    callback_data="payment:lite"),
+            InlineKeyboardButton(f"⚡ Lite 15d — {settings.PLAN_LITE_15D_STARS} ⭐",  callback_data="payment:lite_15d"),
+            InlineKeyboardButton(f"💫 Lite 30d — {settings.PLAN_LITE_STARS} ⭐",    callback_data="payment:lite"),
         ],
         [
-            InlineKeyboardButton(f"🗓️ 6m — {settings.PLAN_LITE_6M_STARS} ⭐",  callback_data="payment:lite_6m"),
-            InlineKeyboardButton(f"🏆 1año — {settings.PLAN_LITE_1Y_STARS} ⭐", callback_data="payment:lite_1y"),
+            InlineKeyboardButton(f"👑 Pro 30d — {settings.PLAN_PRO_STARS} ⭐",      callback_data="payment:pro"),
         ],
         [
-            InlineKeyboardButton(f"👑 Pro 30d — {settings.PLAN_PRO_STARS} ⭐",  callback_data="payment:pro"),
+            InlineKeyboardButton(f"🗓️ Pro 6m — {settings.PLAN_PRO_6M_STARS} ⭐",   callback_data="payment:pro_6m"),
+            InlineKeyboardButton(f"🏆 Pro 1año — {settings.PLAN_PRO_1Y_STARS} ⭐", callback_data="payment:pro_1y"),
         ],
         [InlineKeyboardButton("🏠 Menú Principal", callback_data="menu:main")],
     ]

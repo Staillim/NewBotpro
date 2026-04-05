@@ -13,19 +13,19 @@ logger = logging.getLogger(__name__)
 
 # Payload prefixes stored in the invoice so successful_payment knows what to activate
 _PAYLOAD_LITE     = "plan_lite_30d"
-_PAYLOAD_PRO      = "plan_pro_30d"
 _PAYLOAD_LITE_15D = "plan_lite_15d"
-_PAYLOAD_LITE_6M  = "plan_lite_6m"
-_PAYLOAD_LITE_1Y  = "plan_lite_1y"
+_PAYLOAD_PRO      = "plan_pro_30d"
+_PAYLOAD_PRO_6M   = "plan_pro_6m"
+_PAYLOAD_PRO_1Y   = "plan_pro_1y"
 _PAYLOAD_DONATE   = "donate_stars"
 
-# Map payload → (plan, days, label)
+# Map payload → (PlanType, days, label)
 _PLAN_MAP = {
-    _PAYLOAD_LITE:     (None, 30,  "💫 Plan Lite 30 días"),
-    _PAYLOAD_PRO:      (None, 30,  "👑 Plan Pro 30 días"),
-    _PAYLOAD_LITE_15D: (None, 15,  "⚡ Plan Lite 15 días"),
-    _PAYLOAD_LITE_6M:  (None, 180, "🗓️ Plan Lite 6 meses"),
-    _PAYLOAD_LITE_1Y:  (None, 365, "🏆 Plan Lite 1 año"),
+    _PAYLOAD_LITE:    (PlanType.LITE, 30,  "💫 Plan Lite 30 días"),
+    _PAYLOAD_LITE_15D:(PlanType.LITE, 15,  "⚡ Plan Lite 15 días"),
+    _PAYLOAD_PRO:     (PlanType.PRO,  30,  "👑 Plan Pro 30 días"),
+    _PAYLOAD_PRO_6M:  (PlanType.PRO,  180, "🗓️ Plan Pro 6 meses"),
+    _PAYLOAD_PRO_1Y:  (PlanType.PRO,  365, "🏆 Plan Pro 1 año"),
 }
 
 
@@ -72,27 +72,11 @@ async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ Catálogo completo (Películas, Series, Anime)\n"
             "✅ Streaming sin anuncios\n"
             "✅ Búsqueda inteligente\n"
-            "❌ Sin descarga de contenido"
+            "❌ Sin descarga ni reenvío de contenido"
         ),
         payload=_PAYLOAD_LITE,
         amount=settings.PLAN_LITE_STARS,
         label="Plan Lite 30 días",
-    )
-
-
-async def send_invoice_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _send_invoice(
-        update, context,
-        title="👑 Plan Pro — 30 días",
-        description=(
-            "✅ Todo lo del Plan Lite\n"
-            "✅ Streaming sin anuncios\n"
-            "✅ Guardar contenido en tu dispositivo\n"
-            "✅ Acceso prioritario a estrenos"
-        ),
-        payload=_PAYLOAD_PRO,
-        amount=settings.PLAN_PRO_STARS,
-        label="Plan Pro 30 días",
     )
 
 
@@ -112,37 +96,53 @@ async def send_invoice_lite_15d(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-async def send_invoice_lite_6m(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    savings = settings.PLAN_LITE_STARS * 6 - settings.PLAN_LITE_6M_STARS
+async def send_invoice_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_invoice(
         update, context,
-        title="🗓️ Plan Lite — 6 meses",
+        title="👑 Plan Pro — 30 días",
         description=(
-            "✅ Catálogo completo (Películas, Series, Anime)\n"
-            "✅ Streaming sin anuncios\n"
-            "✅ Búsqueda inteligente\n"
-            f"🔥 ¡Ahorra {savings} ⭐ vs pago mensual!"
+            "✅ Todo lo del Plan Lite\n"
+            "✅ Descarga contenido en tu dispositivo\n"
+            "✅ Comparte contenido con otros\n"
+            "✅ Acceso prioritario a estrenos"
         ),
-        payload=_PAYLOAD_LITE_6M,
-        amount=settings.PLAN_LITE_6M_STARS,
-        label="Plan Lite 6 meses",
+        payload=_PAYLOAD_PRO,
+        amount=settings.PLAN_PRO_STARS,
+        label="Plan Pro 30 días",
     )
 
 
-async def send_invoice_lite_1y(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    savings = settings.PLAN_LITE_STARS * 12 - settings.PLAN_LITE_1Y_STARS
+async def send_invoice_pro_6m(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    savings = settings.PLAN_PRO_STARS * 6 - settings.PLAN_PRO_6M_STARS
     await _send_invoice(
         update, context,
-        title="🏆 Plan Lite — 1 año",
+        title="🗓️ Plan Pro — 6 meses",
         description=(
-            "✅ Catálogo completo (Películas, Series, Anime)\n"
-            "✅ Streaming sin anuncios\n"
+            "✅ Todo lo del Plan Pro mensual\n"
+            "✅ Descarga y comparte contenido\n"
             "✅ Búsqueda inteligente\n"
             f"🔥 ¡Ahorra {savings} ⭐ vs pago mensual!"
         ),
-        payload=_PAYLOAD_LITE_1Y,
-        amount=settings.PLAN_LITE_1Y_STARS,
-        label="Plan Lite 1 año",
+        payload=_PAYLOAD_PRO_6M,
+        amount=settings.PLAN_PRO_6M_STARS,
+        label="Plan Pro 6 meses",
+    )
+
+
+async def send_invoice_pro_1y(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    savings = settings.PLAN_PRO_STARS * 12 - settings.PLAN_PRO_1Y_STARS
+    await _send_invoice(
+        update, context,
+        title="🏆 Plan Pro — 1 año",
+        description=(
+            "✅ Todo lo del Plan Pro mensual\n"
+            "✅ Descarga y comparte contenido\n"
+            "✅ Búsqueda inteligente\n"
+            f"🔥 ¡Ahorra {savings} ⭐ vs pago mensual!"
+        ),
+        payload=_PAYLOAD_PRO_1Y,
+        amount=settings.PLAN_PRO_1Y_STARS,
+        label="Plan Pro 1 año",
     )
 
 
@@ -151,7 +151,7 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.pre_checkout_query
     payload = query.invoice_payload
     logger.info("PRE CHECKOUT received — payload=%s user=%s", payload, query.from_user.id)
-    valid_payloads = {_PAYLOAD_LITE, _PAYLOAD_PRO, _PAYLOAD_LITE_15D, _PAYLOAD_LITE_6M, _PAYLOAD_LITE_1Y}
+    valid_payloads = {_PAYLOAD_LITE, _PAYLOAD_LITE_15D, _PAYLOAD_PRO, _PAYLOAD_PRO_6M, _PAYLOAD_PRO_1Y}
     if payload not in valid_payloads and not payload.startswith(_PAYLOAD_DONATE):
         logger.warning("PRE CHECKOUT REJECTED — unknown payload: %s", payload)
         await query.answer(ok=False, error_message="Pago no reconocido.")
@@ -230,23 +230,23 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     if payload == _PAYLOAD_LITE:
         plan = PlanType.LITE
         days = 30
-        label = "💫 Plan Lite"
-    elif payload == _PAYLOAD_PRO:
-        plan = PlanType.PRO
-        days = 30
-        label = "👑 Plan Pro"
+        label = "💫 Plan Lite 30 días"
     elif payload == _PAYLOAD_LITE_15D:
         plan = PlanType.LITE
         days = 15
         label = "⚡ Plan Lite 15 días"
-    elif payload == _PAYLOAD_LITE_6M:
-        plan = PlanType.LITE
+    elif payload == _PAYLOAD_PRO:
+        plan = PlanType.PRO
+        days = 30
+        label = "👑 Plan Pro 30 días"
+    elif payload == _PAYLOAD_PRO_6M:
+        plan = PlanType.PRO
         days = 180
-        label = "🗓️ Plan Lite 6 meses"
-    elif payload == _PAYLOAD_LITE_1Y:
-        plan = PlanType.LITE
+        label = "🗓️ Plan Pro 6 meses"
+    elif payload == _PAYLOAD_PRO_1Y:
+        plan = PlanType.PRO
         days = 365
-        label = "🏆 Plan Lite 1 año"
+        label = "🏆 Plan Pro 1 año"
     else:
         logger.warning("Unknown payment payload: %s from user %s", payload, user_id)
         return

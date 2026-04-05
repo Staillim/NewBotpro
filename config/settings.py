@@ -49,15 +49,13 @@ class Settings:
     PLAN_PRO_PRICE: float = 5.0   # USD – streaming + download
 
     # Telegram Stars prices (XTR) — 1 star ≈ $0.02 USD
-    # ── 30 días (base) ──
-    PLAN_LITE_STARS: int = int(os.getenv("PLAN_LITE_STARS", "150"))    # ~$3
-    PLAN_PRO_STARS: int  = int(os.getenv("PLAN_PRO_STARS",  "250"))    # ~$5
-    # ── 15 días ──
-    PLAN_LITE_15D_STARS: int = int(os.getenv("PLAN_LITE_15D_STARS", "80"))    # ~$1.60
-    # ── 6 meses (23 % desc.) ──
-    PLAN_LITE_6M_STARS: int  = int(os.getenv("PLAN_LITE_6M_STARS",  "690"))   # 6×150=900 → ahorra 210⭐
-    # ── 1 año   (40 % desc.) ──
-    PLAN_LITE_1Y_STARS: int  = int(os.getenv("PLAN_LITE_1Y_STARS",  "1080"))  # 12×150=1800 → ahorra 720⭐
+    # ── Lite plans ──
+    PLAN_LITE_STARS: int = int(os.getenv("PLAN_LITE_STARS", "150"))       # 30d ~$3
+    PLAN_LITE_15D_STARS: int = int(os.getenv("PLAN_LITE_15D_STARS", "80")) # 15d ~$1.60
+    # ── Pro plans ──
+    PLAN_PRO_STARS: int  = int(os.getenv("PLAN_PRO_STARS",  "250"))        # 30d ~$5
+    PLAN_PRO_6M_STARS: int  = int(os.getenv("PLAN_PRO_6M_STARS",  "1150")) # 6×250=1500 → ahorra 350⭐  (~23%)
+    PLAN_PRO_1Y_STARS: int  = int(os.getenv("PLAN_PRO_1Y_STARS",  "1800")) # 12×250=3000 → ahorra 1200⭐ (~40%)
 
     # Subscription duration in days per payment
     PLAN_DURATION_DAYS: int = 30

@@ -1,6 +1,5 @@
 """Handler: Subscription plans and account management."""
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -12,20 +11,6 @@ from database import db_manager as db
 from database.models import PlanType, SubStatus
 
 logger = logging.getLogger(__name__)
-
-_AUTO_DELETE_SECS = 30
-
-
-async def _delete_after(context, chat_id, message_id):
-    await asyncio.sleep(_AUTO_DELETE_SECS)
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception:
-        pass
-
-
-def _schedule_delete(context, chat_id, message_id):
-    asyncio.create_task(_delete_after(context, chat_id, message_id))
 
 
 PLANS_TEXT = """
@@ -109,7 +94,6 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode="Markdown",
             )
-            _schedule_delete(context, sent.chat_id, sent.message_id)
         else:
             try:
                 await query.edit_message_text(
@@ -117,22 +101,19 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode="Markdown",
                 )
-                _schedule_delete(context, query.message.chat_id, query.message.message_id)
             except Exception:
-                sent = await context.bot.send_message(
+                await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=text,
                     reply_markup=InlineKeyboardMarkup(buttons),
                     parse_mode="Markdown",
                 )
-                _schedule_delete(context, sent.chat_id, sent.message_id)
     else:
-        sent = await update.message.reply_text(
+        await update.message.reply_text(
             text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode="Markdown",
         )
-        _schedule_delete(context, sent.chat_id, sent.message_id)
 
 
 async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, plan_key: str):

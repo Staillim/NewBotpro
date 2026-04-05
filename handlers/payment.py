@@ -1,6 +1,5 @@
 """Handler: Telegram Stars payments for Lite / Pro plans."""
 
-import asyncio
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
@@ -11,22 +10,6 @@ from database import db_manager as db
 from database.models import PlanType
 
 logger = logging.getLogger(__name__)
-
-_AUTO_DELETE_SECS = 30
-
-
-async def _delete_after(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = _AUTO_DELETE_SECS) -> None:
-    """Delete a message after `delay` seconds (best-effort)."""
-    await asyncio.sleep(delay)
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception:
-        pass  # already deleted or not found — ignore
-
-
-def _schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = _AUTO_DELETE_SECS) -> None:
-    """Fire-and-forget auto-delete task."""
-    asyncio.create_task(_delete_after(context, chat_id, message_id, delay))
 
 # Payload prefixes stored in the invoice so successful_payment knows what to activate
 _PAYLOAD_LITE     = "plan_lite_30d"
@@ -76,12 +59,9 @@ async def _send_invoice(
         prices=[LabeledPrice(label, amount)],
     )
 
-    # Track invoice message so successful_payment can delete it
+    # Track invoice message so successful_payment can delete it on purchase
     pending = context.user_data.setdefault("pending_invoices", [])
     pending.append({"chat_id": chat_id, "message_id": sent.message_id})
-
-    # Auto-delete invoice after 30 seconds if user doesn't pay
-    _schedule_delete(context, chat_id, sent.message_id)
 
 
 async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):

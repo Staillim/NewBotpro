@@ -1,5 +1,6 @@
 """Handler: Telegram Stars payments for Lite / Pro plans."""
 
+import asyncio
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Update
@@ -10,6 +11,22 @@ from database import db_manager as db
 from database.models import PlanType
 
 logger = logging.getLogger(__name__)
+
+_AUTO_DELETE_SECS = 30
+
+
+async def _delete_after(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = _AUTO_DELETE_SECS) -> None:
+    """Delete a message after `delay` seconds (best-effort)."""
+    await asyncio.sleep(delay)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass  # already deleted or not found — ignore
+
+
+def _schedule_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int, delay: int = _AUTO_DELETE_SECS) -> None:
+    """Fire-and-forget auto-delete task."""
+    asyncio.create_task(_delete_after(context, chat_id, message_id, delay))
 
 # Payload prefixes stored in the invoice so successful_payment knows what to activate
 _PAYLOAD_LITE     = "plan_lite_30d"
@@ -29,15 +46,47 @@ _PLAN_MAP = {
 }
 
 
-async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a Telegram Stars invoice for the Lite plan."""
+async def _send_invoice(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    title: str,
+    description: str,
+    payload: str,
+    amount: int,
+    label: str,
+) -> None:
+    """Shared invoice sender: deletes plans menu, sends invoice, schedules auto-delete."""
     query = update.callback_query
     chat_id = query.message.chat_id if query else update.effective_chat.id
     if query:
         await query.answer()
+        # Delete the plans menu message immediately so only the invoice remains
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
-    await context.bot.send_invoice(
+    sent = await context.bot.send_invoice(
         chat_id=chat_id,
+        title=title,
+        description=description,
+        payload=payload,
+        currency="XTR",
+        prices=[LabeledPrice(label, amount)],
+    )
+
+    # Track invoice message so successful_payment can delete it
+    pending = context.user_data.setdefault("pending_invoices", [])
+    pending.append({"chat_id": chat_id, "message_id": sent.message_id})
+
+    # Auto-delete invoice after 30 seconds if user doesn't pay
+    _schedule_delete(context, chat_id, sent.message_id)
+
+
+async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _send_invoice(
+        update, context,
         title="💫 Plan Lite — 30 días",
         description=(
             "✅ Catálogo completo (Películas, Series, Anime)\n"
@@ -46,20 +95,14 @@ async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Sin descarga de contenido"
         ),
         payload=_PAYLOAD_LITE,
-        currency="XTR",           # Telegram Stars — no provider token needed
-        prices=[LabeledPrice("Plan Lite 30 días", settings.PLAN_LITE_STARS)],
+        amount=settings.PLAN_LITE_STARS,
+        label="Plan Lite 30 días",
     )
 
 
 async def send_invoice_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a Telegram Stars invoice for the Pro plan."""
-    query = update.callback_query
-    chat_id = query.message.chat_id if query else update.effective_chat.id
-    if query:
-        await query.answer()
-
-    await context.bot.send_invoice(
-        chat_id=chat_id,
+    await _send_invoice(
+        update, context,
         title="👑 Plan Pro — 30 días",
         description=(
             "✅ Todo lo del Plan Lite\n"
@@ -68,20 +111,14 @@ async def send_invoice_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ Acceso prioritario a estrenos"
         ),
         payload=_PAYLOAD_PRO,
-        currency="XTR",
-        prices=[LabeledPrice("Plan Pro 30 días", settings.PLAN_PRO_STARS)],
+        amount=settings.PLAN_PRO_STARS,
+        label="Plan Pro 30 días",
     )
 
 
 async def send_invoice_lite_15d(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a Telegram Stars invoice for the Lite 15-day plan."""
-    query = update.callback_query
-    chat_id = query.message.chat_id if query else update.effective_chat.id
-    if query:
-        await query.answer()
-
-    await context.bot.send_invoice(
-        chat_id=chat_id,
+    await _send_invoice(
+        update, context,
         title="⚡ Plan Lite — 15 días",
         description=(
             "✅ Catálogo completo (Películas, Series, Anime)\n"
@@ -90,21 +127,15 @@ async def send_invoice_lite_15d(update: Update, context: ContextTypes.DEFAULT_TY
             "⚡ Ideal para probar el servicio"
         ),
         payload=_PAYLOAD_LITE_15D,
-        currency="XTR",
-        prices=[LabeledPrice("Plan Lite 15 días", settings.PLAN_LITE_15D_STARS)],
+        amount=settings.PLAN_LITE_15D_STARS,
+        label="Plan Lite 15 días",
     )
 
 
 async def send_invoice_lite_6m(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a Telegram Stars invoice for the Lite 6-month plan."""
-    query = update.callback_query
-    chat_id = query.message.chat_id if query else update.effective_chat.id
-    if query:
-        await query.answer()
-
     savings = settings.PLAN_LITE_STARS * 6 - settings.PLAN_LITE_6M_STARS
-    await context.bot.send_invoice(
-        chat_id=chat_id,
+    await _send_invoice(
+        update, context,
         title="🗓️ Plan Lite — 6 meses",
         description=(
             "✅ Catálogo completo (Películas, Series, Anime)\n"
@@ -113,21 +144,15 @@ async def send_invoice_lite_6m(update: Update, context: ContextTypes.DEFAULT_TYP
             f"🔥 ¡Ahorra {savings} ⭐ vs pago mensual!"
         ),
         payload=_PAYLOAD_LITE_6M,
-        currency="XTR",
-        prices=[LabeledPrice("Plan Lite 6 meses", settings.PLAN_LITE_6M_STARS)],
+        amount=settings.PLAN_LITE_6M_STARS,
+        label="Plan Lite 6 meses",
     )
 
 
 async def send_invoice_lite_1y(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a Telegram Stars invoice for the Lite 1-year plan."""
-    query = update.callback_query
-    chat_id = query.message.chat_id if query else update.effective_chat.id
-    if query:
-        await query.answer()
-
     savings = settings.PLAN_LITE_STARS * 12 - settings.PLAN_LITE_1Y_STARS
-    await context.bot.send_invoice(
-        chat_id=chat_id,
+    await _send_invoice(
+        update, context,
         title="🏆 Plan Lite — 1 año",
         description=(
             "✅ Catálogo completo (Películas, Series, Anime)\n"
@@ -136,8 +161,8 @@ async def send_invoice_lite_1y(update: Update, context: ContextTypes.DEFAULT_TYP
             f"🔥 ¡Ahorra {savings} ⭐ vs pago mensual!"
         ),
         payload=_PAYLOAD_LITE_1Y,
-        currency="XTR",
-        prices=[LabeledPrice("Plan Lite 1 año", settings.PLAN_LITE_1Y_STARS)],
+        amount=settings.PLAN_LITE_1Y_STARS,
+        label="Plan Lite 1 año",
     )
 
 
@@ -212,6 +237,15 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
             except Exception as g_exc:
                 logger.warning("Group donation notify failed for %s: %s", chat_id, g_exc)
         return
+
+    # Delete any pending invoice messages for this user (auto-delete no longer needed)
+    for inv in context.user_data.pop("pending_invoices", []):
+        try:
+            await context.bot.delete_message(
+                chat_id=inv["chat_id"], message_id=inv["message_id"]
+            )
+        except Exception:
+            pass
 
     if payload == _PAYLOAD_LITE:
         plan = PlanType.LITE

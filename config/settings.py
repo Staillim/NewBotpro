@@ -51,7 +51,6 @@ class Settings:
     # Telegram Stars prices (XTR) — 1 star ≈ $0.02 USD
     # ── Lite plans ──
     PLAN_LITE_STARS: int = int(os.getenv("PLAN_LITE_STARS", "150"))       # 30d ~$3
-    PLAN_LITE_15D_STARS: int = int(os.getenv("PLAN_LITE_15D_STARS", "80")) # 15d ~$1.60
     # ── Pro plans ──
     PLAN_PRO_STARS: int  = int(os.getenv("PLAN_PRO_STARS",  "250"))        # 30d ~$5
     PLAN_PRO_6M_STARS: int  = int(os.getenv("PLAN_PRO_6M_STARS",  "1150")) # 6×250=1500 → ahorra 350⭐  (~23%)

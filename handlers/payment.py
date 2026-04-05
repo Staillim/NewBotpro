@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 # Payload prefixes stored in the invoice so successful_payment knows what to activate
 _PAYLOAD_LITE     = "plan_lite_30d"
-_PAYLOAD_LITE_15D = "plan_lite_15d"
 _PAYLOAD_PRO      = "plan_pro_30d"
 _PAYLOAD_PRO_6M   = "plan_pro_6m"
 _PAYLOAD_PRO_1Y   = "plan_pro_1y"
@@ -21,11 +20,10 @@ _PAYLOAD_DONATE   = "donate_stars"
 
 # Map payload → (PlanType, days, label)
 _PLAN_MAP = {
-    _PAYLOAD_LITE:    (PlanType.LITE, 30,  "💫 Plan Lite 30 días"),
-    _PAYLOAD_LITE_15D:(PlanType.LITE, 15,  "⚡ Plan Lite 15 días"),
-    _PAYLOAD_PRO:     (PlanType.PRO,  30,  "👑 Plan Pro 30 días"),
-    _PAYLOAD_PRO_6M:  (PlanType.PRO,  180, "🗓️ Plan Pro 6 meses"),
-    _PAYLOAD_PRO_1Y:  (PlanType.PRO,  365, "🏆 Plan Pro 1 año"),
+    _PAYLOAD_LITE:   (PlanType.LITE, 30,  "💫 Plan Lite 30 días"),
+    _PAYLOAD_PRO:    (PlanType.PRO,  30,  "👑 Plan Pro 30 días"),
+    _PAYLOAD_PRO_6M: (PlanType.PRO,  180, "🗓️ Plan Pro 6 meses"),
+    _PAYLOAD_PRO_1Y: (PlanType.PRO,  365, "🏆 Plan Pro 1 año"),
 }
 
 
@@ -77,22 +75,6 @@ async def send_invoice_lite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payload=_PAYLOAD_LITE,
         amount=settings.PLAN_LITE_STARS,
         label="Plan Lite 30 días",
-    )
-
-
-async def send_invoice_lite_15d(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await _send_invoice(
-        update, context,
-        title="⚡ Plan Lite — 15 días",
-        description=(
-            "✅ Catálogo completo (Películas, Series, Anime)\n"
-            "✅ Streaming sin anuncios\n"
-            "✅ Búsqueda inteligente\n"
-            "⚡ Ideal para probar el servicio"
-        ),
-        payload=_PAYLOAD_LITE_15D,
-        amount=settings.PLAN_LITE_15D_STARS,
-        label="Plan Lite 15 días",
     )
 
 
@@ -151,7 +133,7 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.pre_checkout_query
     payload = query.invoice_payload
     logger.info("PRE CHECKOUT received — payload=%s user=%s", payload, query.from_user.id)
-    valid_payloads = {_PAYLOAD_LITE, _PAYLOAD_LITE_15D, _PAYLOAD_PRO, _PAYLOAD_PRO_6M, _PAYLOAD_PRO_1Y}
+    valid_payloads = {_PAYLOAD_LITE, _PAYLOAD_PRO, _PAYLOAD_PRO_6M, _PAYLOAD_PRO_1Y}
     if payload not in valid_payloads and not payload.startswith(_PAYLOAD_DONATE):
         logger.warning("PRE CHECKOUT REJECTED — unknown payload: %s", payload)
         await query.answer(ok=False, error_message="Pago no reconocido.")
@@ -231,10 +213,6 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
         plan = PlanType.LITE
         days = 30
         label = "💫 Plan Lite 30 días"
-    elif payload == _PAYLOAD_LITE_15D:
-        plan = PlanType.LITE
-        days = 15
-        label = "⚡ Plan Lite 15 días"
     elif payload == _PAYLOAD_PRO:
         plan = PlanType.PRO
         days = 30

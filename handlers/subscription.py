@@ -24,7 +24,6 @@ PLANS_TEXT = """
 ├ ✅ Búsqueda inteligente
 └ ❌ Sin descarga ni reenvío de contenido
 
-⚡ 15 días — {lite_15d_stars} ⭐
 💫 30 días — {lite_stars} ⭐
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -53,7 +52,6 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = PLANS_TEXT.format(
         lite_stars=settings.PLAN_LITE_STARS,
-        lite_15d_stars=settings.PLAN_LITE_15D_STARS,
         pro_stars=settings.PLAN_PRO_STARS,
         pro_6m_stars=settings.PLAN_PRO_6M_STARS,
         pro_1y_stars=settings.PLAN_PRO_1Y_STARS,
@@ -63,7 +61,6 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     buttons = [
         [
-            InlineKeyboardButton(f"⚡ Lite 15d — {settings.PLAN_LITE_15D_STARS} ⭐",  callback_data="payment:lite_15d"),
             InlineKeyboardButton(f"💫 Lite 30d — {settings.PLAN_LITE_STARS} ⭐",    callback_data="payment:lite"),
         ],
         [

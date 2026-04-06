@@ -327,6 +327,7 @@ async def _do_start_show_session(
 # ── Movie auto-index ──────────────────────────────────────────────────────────
 
 
+async def _do_add_episode(file_id: str, post: Message, context) -> None:
     """Internal: assign episode number, send to channel, and save to DB."""
     global _active_session
     if not _active_session:

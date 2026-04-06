@@ -6,6 +6,12 @@ Flow:
   - "anime: Nombre"                  → opens an anime session
   - videos sent while session open   → indexed as episodes (auto S01E01, E02…)
   - "final"                          → closes session, reports count
+
+Architecture:
+  ALL intake channel posts (commands + videos) go through a single serial
+  PriorityQueue keyed by message_id.  The worker processes them one at a time,
+  in the exact order they were sent.  This eliminates every race condition that
+  arises from concurrent_updates=True.
 """
 
 import asyncio
@@ -26,15 +32,12 @@ logger = logging.getLogger(__name__)
 # ── Session state (one active show at a time per process) ─────────────────────
 _active_session: dict | None = None
 
-# Priority queue for episodes: items are (message_id, file_id, post, context)
-# Processing in message_id order guarantees intake-channel send order.
-_episode_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
-_episode_worker_task: asyncio.Task | None = None
+# ── Single serial queue for ALL intake channel posts ──────────────────────────
+# Items: (message_id, update, context)  — processed one at a time in order.
+_intake_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+_intake_worker_task: asyncio.Task | None = None
 
-# Semaphore: process max 1 movie at a time to avoid Telegram/TMDB flood
-_index_lock = asyncio.Semaphore(1)
-
-# Delay between consecutive sends to the distribution channel (seconds)
+# Delay between consecutive channel sends (flood-limit protection)
 _SEND_DELAY = 2.0
 
 # ── Pending-movie state (TMDB not found) ──────────────────────────────────────
@@ -105,20 +108,44 @@ async def _notify_groups(context, title: str, year: str | None,
             logger.warning("Group notify failed for %s: %s", chat_id, exc)
 
 
+# ── Intake worker ─────────────────────────────────────────────────────────────
+
+def _ensure_intake_worker(context) -> None:
+    global _intake_worker_task
+    if _intake_worker_task is None or _intake_worker_task.done():
+        _intake_worker_task = asyncio.create_task(_intake_worker())
+
+
+async def _intake_worker() -> None:
+    """Drain _intake_queue serially.  One item at a time, in message_id order."""
+    while True:
+        _msg_id, update, context = await _intake_queue.get()
+        try:
+            await _process_intake_post(update, context)
+        except Exception as exc:
+            logger.error("Intake worker unhandled error: %s", exc, exc_info=True)
+        finally:
+            _intake_queue.task_done()
+
+
 # ── Main channel-post handler ─────────────────────────────────────────────────
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Entry point for every post in the intake channel."""
-    global _active_session
-
+    """Entry point: enqueue every intake channel post for serial processing."""
     post = update.channel_post
     if not post:
         return
-
-    # Only react to the configured intake channel
     if post.chat.id != settings.INTAKE_CHANNEL_ID:
         return
+    _ensure_intake_worker(context)
+    await _intake_queue.put((post.message_id, update, context))
 
+
+async def _process_intake_post(update: Update, context) -> None:
+    """Process one intake post — always runs inside the serial worker."""
+    global _active_session
+
+    post = update.channel_post
     text = (post.text or post.caption or "").strip()
     tl = text.lower()
 
@@ -128,8 +155,6 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not name:
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `serie: Breaking Bad`")
             return
-        # Wait for pending episodes before switching session
-        await _episode_queue.join()
         await _start_show_session(name, ContentType.SERIES, context)
         return
 
@@ -139,21 +164,16 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not name:
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `anime: Naruto`")
             return
-        # Wait for pending episodes before switching session
-        await _episode_queue.join()
         await _start_show_session(name, ContentType.ANIME, context)
         return
 
     # ── final ─────────────────────────────────────────────────────────────────
     if tl == "final":
-        # Wait for all queued episodes to finish indexing before closing
-        await _episode_queue.join()
-        async with _index_lock:
-            if not _active_session:
-                await _notify(context, "⚠️ No hay ninguna sesión activa.")
-                return
-            session = _active_session
-            _active_session = None
+        if not _active_session:
+            await _notify(context, "⚠️ No hay ninguna sesión activa.")
+            return
+        session = _active_session
+        _active_session = None
         show = session["show"]
         count = session["episode_count"]
         emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
@@ -163,7 +183,6 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{emoji} *{show.name}*\n"
             f"📦 {count} episodio(s) indexado(s)",
         )
-        # Publish and notify groups only when episodes were added
         if count > 0:
             await db.publish_show(show.id)
             content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
@@ -180,42 +199,17 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     # ── Video file ────────────────────────────────────────────────────────────
     file_id = _extract_file_id(post)
     if not file_id:
-        return  # text not matching any command — ignore
+        return
 
     if _active_session:
-        await _add_episode(file_id, post, context)
+        await _do_add_episode(file_id, post, context)
+        await asyncio.sleep(1.0)  # pace episode sends
     else:
-        await _index_movie(file_id, post, context)
+        await _do_index_movie(file_id, post, context)
+        await asyncio.sleep(_SEND_DELAY)  # pace movie sends
 
 
 # ── Session management ────────────────────────────────────────────────────────
-
-async def _auto_close_session(context) -> None:
-    """Close the active session silently (used when a new session starts without `final`)."""
-    global _active_session
-    if not _active_session:
-        return
-    session = _active_session
-    _active_session = None
-    show = session["show"]
-    count = session["episode_count"]
-    emoji = "🎌" if show.content_type == ContentType.ANIME else "📺"
-    await _notify(
-        context,
-        f"⚠️ Sesión anterior cerrada automáticamente.\n"
-        f"{emoji} *{show.name}* — {count} episodio(s) indexado(s).",
-    )
-    if count > 0:
-        await db.publish_show(show.id)
-        content_type_str = "anime" if show.content_type == ContentType.ANIME else "series"
-        await _notify_groups(
-            context,
-            title=show.name,
-            year=show.year,
-            poster_url=show.poster_url,
-            deeplink=f"watch_{content_type_str}_{show.id}",
-            emoji=emoji,
-        )
 
 
 async def _start_show_session(
@@ -330,33 +324,9 @@ async def _do_start_show_session(
         )
 
 
-async def _episode_worker() -> None:
-    """Background worker: drains _episode_queue in message_id order."""
-    while True:
-        _msg_id, file_id, post, context = await _episode_queue.get()
-        try:
-            await _do_add_episode(file_id, post, context)
-            await asyncio.sleep(1.0)  # brief pause to keep channel order
-        except Exception as exc:
-            logger.error("Episode worker error: %s", exc)
-        finally:
-            _episode_queue.task_done()
+# ── Movie auto-index ──────────────────────────────────────────────────────────
 
 
-def _ensure_episode_worker() -> None:
-    """Start the worker task if not already running."""
-    global _episode_worker_task
-    if _episode_worker_task is None or _episode_worker_task.done():
-        _episode_worker_task = asyncio.create_task(_episode_worker())
-
-
-async def _add_episode(file_id: str, post: Message, context) -> None:
-    """Queue a video as the next episode — order preserved by message_id."""
-    _ensure_episode_worker()
-    await _episode_queue.put((post.message_id, file_id, post, context))
-
-
-async def _do_add_episode(file_id: str, post: Message, context) -> None:
     """Internal: assign episode number, send to channel, and save to DB."""
     global _active_session
     if not _active_session:
@@ -441,14 +411,6 @@ async def _do_add_episode(file_id: str, post: Message, context) -> None:
 
 
 # ── Movie auto-index ──────────────────────────────────────────────────────────
-
-async def _index_movie(file_id: str, post: Message, context) -> None:
-    """Auto-index a video as a movie — serialized to avoid flood limits."""
-    async with _index_lock:
-        await _do_index_movie(file_id, post, context)
-        # Pause between consecutive movies to respect Telegram's rate limit
-        await asyncio.sleep(_SEND_DELAY)
-
 
 async def _publish_movie(
     file_id: str,

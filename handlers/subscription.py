@@ -26,13 +26,6 @@ PLANS_TEXT = """
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-💫 Plan Lite  30 días  —  {lite_stars} ⭐
-👑 Plan Pro   30 días  —  {pro_stars} ⭐
-🗓️ Plan Pro   6 meses  —  {pro_6m_stars} ⭐  _(23% dct.)_
-🏆 Plan Pro   1 año    —  {pro_1y_stars} ⭐  _(40% dct.)_
-
-━━━━━━━━━━━━━━━━━━━━━━
-
 ⭐ Pago con *Telegram Stars* directo desde la app.
 """
 
@@ -43,12 +36,7 @@ async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query:
         await query.answer()
 
-    text = PLANS_TEXT.format(
-        lite_stars=settings.PLAN_LITE_STARS,
-        pro_stars=settings.PLAN_PRO_STARS,
-        pro_6m_stars=settings.PLAN_PRO_6M_STARS,
-        pro_1y_stars=settings.PLAN_PRO_1Y_STARS,
-    )
+    text = PLANS_TEXT
 
     buttons = [
         [

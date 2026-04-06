@@ -268,6 +268,40 @@ async def _do_start_show_session(
             existing = []  # Treat as not found
     if existing:
         show = existing[0]
+        # If the show is missing key metadata, try to enrich it from TMDB now
+        needs_enrich = not show.poster_url or not show.overview or not show.tmdb_id
+        if needs_enrich:
+            try:
+                tmdb_results = await tmdb_api.search_tv(name)
+                if tmdb_results:
+                    td = tmdb_results[0]
+                    updates = {}
+                    if not show.tmdb_id and td.get("tmdb_id"):
+                        updates["tmdb_id"] = td["tmdb_id"]
+                    if not show.poster_url and td.get("poster_url"):
+                        updates["poster_url"] = td["poster_url"]
+                    if not show.backdrop_url and td.get("backdrop_url"):
+                        updates["backdrop_url"] = td["backdrop_url"]
+                    if not show.overview and td.get("overview"):
+                        updates["overview"] = td["overview"]
+                    if not show.vote_average and td.get("vote_average"):
+                        updates["vote_average"] = td["vote_average"]
+                    if not show.genres and td.get("genres"):
+                        updates["genres"] = td["genres"]
+                    if not show.year and td.get("year"):
+                        updates["year"] = td["year"]
+                    if not show.number_of_seasons and td.get("number_of_seasons"):
+                        updates["number_of_seasons"] = td["number_of_seasons"]
+                    if not show.status and td.get("status"):
+                        updates["status"] = td["status"]
+                    if updates:
+                        await db.update_show_metadata(show.id, **updates)
+                        # Refresh local object so the session uses updated data
+                        for k, v in updates.items():
+                            setattr(show, k, v)
+                        logger.info("Enriched show %s with TMDB data: %s", show.name, list(updates))
+            except Exception as exc:
+                logger.warning("TMDB enrich failed for '%s': %s", name, exc)
         await _notify(
             context,
             f"{emoji} *{show.name}* encontrada en DB.\n"

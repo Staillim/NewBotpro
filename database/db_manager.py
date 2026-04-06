@@ -470,6 +470,15 @@ async def update_show_genres(show_id: int, genres: str) -> None:
         await s.commit()
 
 
+async def update_show_metadata(show_id: int, **kwargs) -> None:
+    """Update any TvShow fields by keyword argument."""
+    if not kwargs:
+        return
+    async with async_session() as s:
+        await s.execute(update(TvShow).where(TvShow.id == show_id).values(**kwargs))
+        await s.commit()
+
+
 async def delete_show(show_id: int) -> bool:
     """Delete a show and all its episodes. Returns True if the show existed."""
     async with async_session() as s:

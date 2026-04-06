@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 # ── Session state (one active show at a time per process) ─────────────────────
 _active_session: dict | None = None
 
+# Priority queue for episodes: items are (message_id, file_id, post, context)
+# Processing in message_id order guarantees intake-channel send order.
+_episode_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+_episode_worker_task: asyncio.Task | None = None
+
 # Semaphore: process max 1 movie at a time to avoid Telegram/TMDB flood
 _index_lock = asyncio.Semaphore(1)
 
@@ -124,8 +129,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `serie: Breaking Bad`")
             return
         # Wait for pending episodes before switching session
-        async with _index_lock:
-            pass
+        await _episode_queue.join()
         await _start_show_session(name, ContentType.SERIES, context)
         return
 
@@ -136,14 +140,14 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             await _notify(context, "❌ Falta el nombre.\nEjemplo: `anime: Naruto`")
             return
         # Wait for pending episodes before switching session
-        async with _index_lock:
-            pass
+        await _episode_queue.join()
         await _start_show_session(name, ContentType.ANIME, context)
         return
 
     # ── final ─────────────────────────────────────────────────────────────────
     if tl == "final":
-        # Wait for any pending episode indexing to finish first
+        # Wait for all queued episodes to finish indexing before closing
+        await _episode_queue.join()
         async with _index_lock:
             if not _active_session:
                 await _notify(context, "⚠️ No hay ninguna sesión activa.")
@@ -326,11 +330,30 @@ async def _do_start_show_session(
         )
 
 
+async def _episode_worker() -> None:
+    """Background worker: drains _episode_queue in message_id order."""
+    while True:
+        _msg_id, file_id, post, context = await _episode_queue.get()
+        try:
+            await _do_add_episode(file_id, post, context)
+            await asyncio.sleep(1.0)  # brief pause to keep channel order
+        except Exception as exc:
+            logger.error("Episode worker error: %s", exc)
+        finally:
+            _episode_queue.task_done()
+
+
+def _ensure_episode_worker() -> None:
+    """Start the worker task if not already running."""
+    global _episode_worker_task
+    if _episode_worker_task is None or _episode_worker_task.done():
+        _episode_worker_task = asyncio.create_task(_episode_worker())
+
+
 async def _add_episode(file_id: str, post: Message, context) -> None:
-    """Index a video as the next episode in the active session — serialized to keep order."""
-    async with _index_lock:
-        await _do_add_episode(file_id, post, context)
-        await asyncio.sleep(1.0)  # brief pause to keep channel order
+    """Queue a video as the next episode — order preserved by message_id."""
+    _ensure_episode_worker()
+    await _episode_queue.put((post.message_id, file_id, post, context))
 
 
 async def _do_add_episode(file_id: str, post: Message, context) -> None:

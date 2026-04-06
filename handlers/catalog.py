@@ -168,12 +168,37 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         await query.answer("Esta serie aún no tiene episodios.", show_alert=True)
         return
 
-    # Single season → go directly to episode list
+    # Single season → show poster + direct episode list button
     if len(seasons) == 1:
-        await show_season(update, context, show_id, seasons[0], page=0)
+        emoji = "📺" if show.content_type == ContentType.SERIES else "🎌"
+        year = f" ({show.year})" if show.year else ""
+        eps = await db.get_episodes(show_id, seasons[0])
+        ep_count = f"({len(eps)} ep.)" if eps else ""
+        text = f"{emoji} *{show.name}{year}*\n\n{ep_count}"
+        cat_key = "series" if show.content_type == ContentType.SERIES else "anime"
+        buttons = [
+            [InlineKeyboardButton(f"▶️ Ver episodios", callback_data=f"season:{show_id}:{seasons[0]}:0")],
+            [InlineKeyboardButton("🔙 Volver", callback_data=f"cat:{cat_key}:0")],
+        ]
+        if show.poster_url:
+            try:
+                await query.message.delete()
+                await context.bot.send_photo(
+                    chat_id=query.message.chat_id,
+                    photo=show.poster_url,
+                    caption=text,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    parse_mode="Markdown",
+                )
+                return
+            except Exception:
+                pass
+        await query.edit_message_text(
+            text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown"
+        )
         return
 
-    # Multiple seasons → compact list (no poster/description, just season buttons)
+    # Multiple seasons → compact list (no description, just season buttons)
     emoji = "📺" if show.content_type == ContentType.SERIES else "🎌"
     year = f" ({show.year})" if show.year else ""
     text = f"{emoji} *{show.name}{year}*\n\nSelecciona una temporada:"
@@ -188,6 +213,20 @@ async def show_show_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, s
 
     cat_key = "series" if show.content_type == ContentType.SERIES else "anime"
     buttons.append([InlineKeyboardButton("🔙 Volver", callback_data=f"cat:{cat_key}:0")])
+
+    if show.poster_url:
+        try:
+            await query.message.delete()
+            await context.bot.send_photo(
+                chat_id=query.message.chat_id,
+                photo=show.poster_url,
+                caption=text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode="Markdown",
+            )
+            return
+        except Exception:
+            pass
 
     await query.edit_message_text(
         text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown"

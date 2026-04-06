@@ -97,8 +97,8 @@ def _parse_movie(item: dict) -> dict:
 async def search_tv(query: str) -> list[dict]:
     await _ensure_genre_maps()
     data = await _get("/search/tv", {"query": query})
-    if not data:
-        return []
+    if data is None:
+        raise RuntimeError(f"TMDB network error searching TV '{query}'")
     results = []
     for item in data.get("results", [])[:5]:
         results.append(_parse_tv(item))

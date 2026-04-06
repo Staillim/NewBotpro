@@ -310,16 +310,24 @@ async def _do_start_show_session(
     else:
         # Search TMDB
         tmdb_data: dict = {}
+        tmdb_failed = False
         try:
             results = await tmdb_api.search_tv(name)
+            logger.info("TMDB search_tv('%s') returned %d results", name, len(results))
             if results:
                 tmdb_data = results[0]
+                logger.info("TMDB first result: name=%s, tmdb_id=%s, poster=%s",
+                            tmdb_data.get('name'), tmdb_data.get('tmdb_id'),
+                            bool(tmdb_data.get('poster_url')))
                 if content_type == ContentType.ANIME and tmdb_data.get("tmdb_id"):
                     is_anime = await tmdb_api.is_anime(tmdb_data["tmdb_id"])
                     if is_anime:
                         content_type = ContentType.ANIME
+            else:
+                logger.warning("TMDB returned 0 results for '%s'", name)
         except Exception as exc:
             logger.warning("TMDB search failed for '%s': %s", name, exc)
+            tmdb_failed = True
 
         show = await db.add_tv_show(
             name=tmdb_data.get("name", name),
@@ -335,9 +343,17 @@ async def _do_start_show_session(
             number_of_seasons=tmdb_data.get("number_of_seasons"),
             status=tmdb_data.get("status"),
         )
+
+        if tmdb_data:
+            tmdb_status = "✅ con datos de TMDB"
+        elif tmdb_failed:
+            tmdb_status = "⚠️ TMDB falló (red/API) — sin metadata"
+        else:
+            tmdb_status = "⚠️ no encontrada en TMDB — sin metadata"
+
         await _notify(
             context,
-            f"{emoji} *{show.name}* creada correctamente.\n"
+            f"{emoji} *{show.name}* creada correctamente ({tmdb_status}).\n"
             f"Envía los episodios y escribe `final` cuando termines.",
         )
 

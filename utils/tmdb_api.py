@@ -94,15 +94,42 @@ def _parse_movie(item: dict) -> dict:
 
 # ── TV Shows / Anime ─────────────────────────────────────────────────────────
 
+import re as _re
+
+def _strip_year(query: str) -> tuple[str, str | None]:
+    """Strip a trailing (YYYY) or YYYY from a query, return (clean_name, year)."""
+    m = _re.match(r'^(.+?)\s*\((\d{4})\)\s*$', query)
+    if m:
+        return m.group(1).strip(), m.group(2)
+    m = _re.match(r'^(.+?)\s+(\d{4})\s*$', query)
+    if m:
+        return m.group(1).strip(), m.group(2)
+    return query.strip(), None
+
+
 async def search_tv(query: str) -> list[dict]:
     await _ensure_genre_maps()
-    data = await _get("/search/tv", {"query": query})
+
+    # 1) Strip year from query — TMDB search works best with just the name
+    clean_name, year = _strip_year(query)
+
+    # 2) Search with clean name first
+    data = await _get("/search/tv", {"query": clean_name})
     if data is None:
         raise RuntimeError(f"TMDB network error searching TV '{query}'")
-    results = []
-    for item in data.get("results", [])[:5]:
-        results.append(_parse_tv(item))
-    return results
+    results = data.get("results", [])
+
+    # 3) If year was provided and we got multiple results, try filtering
+    #    with first_air_date_year to get a more precise match
+    if not results and year:
+        data2 = await _get("/search/tv", {"query": clean_name, "first_air_date_year": year})
+        if data2:
+            results = data2.get("results", [])
+
+    parsed = []
+    for item in results[:5]:
+        parsed.append(_parse_tv(item))
+    return parsed
 
 
 async def get_tv_details(tmdb_id: int) -> Optional[dict]:
